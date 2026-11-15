@@ -160,8 +160,10 @@ function exportDialog() {
       (canShare ? uiRow('share', 'external', 'مشاركة') : '') +
       uiRow('dl', 'arrow-down', 'تنزيل') +
       uiRow('bundle', 'file-md', 'نص واحد للذكاء الاصطناعي') +
+      uiRow('gh', 'external', 'دفع إلى GitHub') +
       uiRow('one', 'file', 'هذا الملف فقط (بدون ZIP)'), (act, el) => {
         if (act === 'one') { ui.close(null); return saveToDevice(true); }
+        if (act === 'gh') { ui.close(null); return void setTimeout(githubDialog, 120); }
         if (act === 'bundle') { const s = sel; ui.close(null); return void setTimeout(() => exportBundleDialog(s), 120); }
         const inp = $('exName'); if (inp) nameVal = inp.value;
         if (act === 'fold') { const old = defName(); sel = list[+el.dataset.i]; if (nameVal === old) nameVal = defName(); return draw(); }

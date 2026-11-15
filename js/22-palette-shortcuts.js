@@ -38,7 +38,7 @@ function cmdList() {
   const L = [
     ['حفظ…', saveMenu], ['حفظ الكل', saveAll], ['بحث واستبدال', toggleFindBar], ['انتقال إلى سطر', goToLine], ['تشغيل المعاينة', runCode],
     ['تراجع', undo], ['إعادة', redo], ['نسخ كل الكود', copyAll], ['لصق', pasteClipboard], ['المشاكل (فحص الأقواس)', showProblems],
-    ['ملف جديد', newFile], ['إعادة تسمية الملف', renameFile], ['تصدير المشروع ZIP', () => exportZip()], ['فتح ملفات', openFiles], ['نسخ المشروع كنص واحد (للذكاء)', () => exportBundleDialog('')], ['توليد ملفات من نص', importBundleDialog],
+    ['ملف جديد', newFile], ['إعادة تسمية الملف', renameFile], ['تصدير المشروع ZIP', () => exportZip()], ['فتح ملفات', openFiles], ['نسخ المشروع كنص واحد (للذكاء)', () => exportBundleDialog('')], ['توليد ملفات من نص', importBundleDialog], ['دفع المشروع إلى GitHub', githubDialog],
     ['تكرار السطر', () => lineOp('dup')], ['حذف السطر', () => lineOp('dell')], ['نقل السطر لأعلى', () => lineOp('mvup')], ['نقل السطر لأسفل', () => lineOp('mvdn')],
     ['تعليق/إلغاء تعليق', toggleComment], ['زيادة المسافة البادئة', () => indentLines(1)], ['إنقاص المسافة البادئة', () => indentLines(-1)],
     ['معاينة الباتش', previewPatch], ['تطبيق الباتش', applyPatch], ['تراجع عن آخر تطبيق باتش', undoBatch],
