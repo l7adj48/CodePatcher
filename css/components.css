@@ -180,6 +180,7 @@ button:disabled { opacity: 0.42; cursor: not-allowed; filter: saturate(0.5); }
 
 /* ── حقول الإدخال ومربعات النص ── */
 input[type="text"],
+input[type="password"],
 textarea.plain,
 .sheet textarea,
 .find-row input {
@@ -205,6 +206,7 @@ textarea.plain,
   resize: vertical;
 }
 input[type="text"]:focus,
+input[type="password"]:focus,
 textarea.plain:focus,
 .sheet textarea:focus,
 .find-row input:focus {
