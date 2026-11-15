@@ -693,3 +693,11 @@ textarea.plain:focus,
 .set-tabs button:active, .set-seg button:active { background: var(--surface-hover); }
 .set-tabs button.sel, .set-seg button.sel { background: var(--color-primary-soft); }
 .set-page { min-height: min(46dvh, 400px); }
+
+/* صفوف أجزاء حزمة النص */
+.part-row { display: grid; grid-template-columns: 1fr 52px; gap: 8px; }
+.part-row .btn { min-height: 46px; }
+.part-row > .btn:first-child { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-inline: 14px; }
+.part-t { display: inline-flex; align-items: center; gap: 8px; }
+.part-row .meta-sub { opacity: .8; font-family: var(--font-mono); }
+.part-row .meta-sub { color: inherit; }

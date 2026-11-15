@@ -154,18 +154,20 @@ function smokeSection(cx) {
 }
 function repairReportText(errs, cx) {
   const ev = cx.ev, out = [];
+  // المعاينة يُتراجع عنها ولا يُعتمد شيء قبل نجاح الدفعة كلها: يُطلب دائماً إعادة كل الباتشات لا الفاشلة وحدها
+  const total = ev ? ev.results.length : 0;
   out.push('=== تقرير إصلاح للذكاء — CodePatcher ===');
   out.push('فشل ' + errs.length + ' باتش عند تطبيقه على الكود الفعلي. هذا هو الكود الفعلي الموجود الآن في المحرر — أعد التوليد بناءً عليه، لا بناءً على ما تتذكّره.');
   out.push('', 'القواعد:',
     '1) انسخ نص find حرفياً من «الكود الفعلي» أدناه، بنفس حالة الأحرف والمسافات والتبويب.',
     '2) اجعل find فريداً (أضف سطراً مجاوراً) أو استخدم "occurrence" أو "all": true.',
-    '3) أعد فقط الباتشات الفاشلة، في مصفوفة JSON واحدة، بلا شرح خارج الـJSON. الباتشات الناجحة لا تُعاد.',
+    '3) أعد **كل** باتشات الدفعة' + (total ? ' (' + total + ')' : '') + ' في مصفوفة JSON واحدة وبنفس ترتيبها، لا الفاشلة وحدها: صحّح الفاشلة، وانسخ الناجحة كما هي حرفياً دون تغيير، بلا شرح خارج الـJSON. (لا يُعتمد أي باتش قبل أن تنجح الدفعة كلها.)',
     '4) احتفظ بنفس حقول file / action / replace ومعنى التعديل المقصود.');
   if (ev) {
     const c = k => ev.results.filter(r => r.status === k).map(r => r.n);
     const ok = c('applied'), sk = c('skipped');
-    out.push('', 'حالة الدفعة: ' + (cx.dry ? 'معاينة (لم يُطبَّق شيء بعد)' : ev.blocked ? 'مرفوضة كاملاً (الكل أو لا شيء) — لم يُطبَّق شيء' : 'طُبِّقت الناجحة فعلاً في المحرر، فلا تعد توليدها') + '.',
-      'ناجح: ' + (ok.length ? ok.map(x => '#' + x).join(' ') : '—') + ' | مُتخطّى: ' + (sk.length ? sk.map(x => '#' + x).join(' ') : '—') + ' | فاشل: ' + c('failed').map(x => '#' + x).join(' '));
+    out.push('', 'حالة الدفعة: لم يُعتمد أي باتش — المعاينة يُتراجع عنها، فتُعاد الدفعة كلها.',
+      'ناجح (يُعاد كما هو): ' + (ok.length ? ok.map(x => '#' + x).join(' ') : '—') + ' | مُتخطّى: ' + (sk.length ? sk.map(x => '#' + x).join(' ') : '—') + ' | فاشل (يُصحَّح): ' + c('failed').map(x => '#' + x).join(' '));
   }
   const MAXE = 8;
   errs.slice(0, MAXE).forEach((e, i) => out.push('', repairSection(e, i + 1, cx)));
@@ -174,7 +176,7 @@ function repairReportText(errs, cx) {
   if (cx.lint && cx.lint.length) out.push('', '--- مشاكل الأقواس/النصوص في «' + cx.lintName + '» الآن ---', rFence(cx.lint.slice(0, 5).map(x => 'سطر ' + x.line + ': ' + x.msg).join('\n')));
   if (cx.con && cx.con.length) out.push('', '--- آخر أخطاء الكونسول (المعاينة) ---', rFence(cx.con.join('\n')));
   const nums = errs.map(e => e.patchIndex).filter(x => x != null);
-  out.push('', 'المطلوب الآن: مصفوفة JSON واحدة تحوي الباتشات الفاشلة فقط' + (nums.length ? ' (الأرقام: ' + nums.map(x => '#' + x).join(' ') + ')' : '') + '، مبنيّة على الكود الفعلي أعلاه.', '=== نهاية التقرير ===');
+  out.push('', 'المطلوب الآن: مصفوفة JSON واحدة تحوي كل الباتشات' + (total ? ' (#1 إلى #' + total + ')' : '') + ' — الفاشلة مصحَّحة' + (nums.length ? ' (' + nums.map(x => '#' + x).join(' ') + ')' : '') + ' والناجحة كما هي دون تغيير، مبنيّة على الكود الفعلي أعلاه.', '=== نهاية التقرير ===');
   return out.join('\n');
 }
 function gatherRepairCx(allErrs) {

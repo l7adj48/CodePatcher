@@ -124,7 +124,7 @@ async function showRecovery(err) {
   sn.forEach(b => { const x = document.createElement('button'); x.style.cssText = 'display:block;width:100%;text-align:right;padding:10px;margin:4px 0;border-radius:8px;border:1px solid #283142;background:#12161f;color:#e6edf3'; x.textContent = (b.r || 'نقطة حفظ') + ' · ' + new Date(b.t).toLocaleString('en-GB') + ' · ' + (b.files || []).length + ' ملف — تنزيل'; x.onclick = () => dl('snapshot-' + b.t + '.json', b); box.appendChild(x); });
 }
 async function runSelfTest() {
-  const T = pureTests().concat(pureTests2(), pureTests3(), pureTests4(), pureTests5(), pureTests6(), pureTests7(), pureTests8(), pureTests9());
+  const T = pureTests().concat(pureTests2(), pureTests3(), pureTests4(), pureTests5(), pureTests6(), pureTests7(), pureTests8(), pureTests9(), pureTestsBundle());
   const fr = $('runFrame'), sb = fr.getAttribute('sandbox') || '';
   T.push({ n: 'sandbox بلا allow-same-origin', ok: sb.indexOf('allow-same-origin') < 0 });
   T.push({ n: 'sandbox يحتفظ بـ allow-scripts وallow-modals وallow-forms وallow-popups', ok: ['allow-scripts', 'allow-modals', 'allow-forms', 'allow-popups'].every(x => sb.indexOf(x) > -1) });

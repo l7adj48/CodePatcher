@@ -4,7 +4,7 @@
 const BUNDLE_HEAD = /^\s*# CodePatcher Bundle/;
 /* بعد ui.close يلزم انتظار قصير قبل فتح نافذة أخرى (سباق history.back في ui) */
 const bundleWait = ms => new Promise(r => setTimeout(r, ms));
-const bundleOpt = { instr: true, limit: 0 };
+const bundleOpt = { instr: true, limit: 30000 };   // limit = الحد الأقصى للأحرف في الجزء الواحد (0 = كل شيء)
 const bLines = c => { const t = String(c).replace(/\s+$/, ''); return t === '' ? 0 : t.split('\n').length; };
 function estTokens(s) { let a = 0, o = 0; for (let i = 0; i < s.length; i++) (s.charCodeAt(i) < 128 ? a++ : o++); return Math.ceil(a / 3.6 + o / 1.6); }
 
@@ -31,26 +31,51 @@ function bundleInstr(n) {
     (n > 1 ? '\n# The project is sent in ' + n + ' parts: wait until all parts arrive before answering.' : '');
 }
 
-/* يبني الأجزاء: limit = حد التوكنات التقريبي للجزء (0 = كل شيء في جزء واحد). الملف الواحد لا يُقسَّم. */
-function bundleBuild(sel, limit, instr) {
-  const fl = files.filter(f => !sel || f.name.startsWith(sel + '/')).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
-  const bins = [...BIN.keys()].map(n => n.replace(/^\/+/, '')).filter(n => !sel || n.startsWith(sel + '/')).sort();
-  const blocks = fl.map(f => { const t = nl(f.content).replace(/\s+$/, ''); return '=== FILE: ' + f.name + ' (' + bLines(t) + ' lines) ===\n' + t + '\n\n'; });
+/* يبني الأجزاء بحد صارم بالأحرف: لا يتجاوز أي جزء (بترويسته وذيله) limit حرفاً.
+   limit = 0 → كل شيء في جزء واحد. الملف الأكبر من المتاح يُقسَّم على حدود الأسطر وتُوضع له ترويسة تكملة (للقراءة، لا لإعادة الاستيراد). */
+function bundleBuildFrom(fl, bins, sel, limit, instr) {
+  fl = fl.slice().sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  if (limit) limit = Math.max(3000, limit | 0);
   const root = sel || commonRoot(fl) || 'Project';
   const meta = '# المشروع: ' + root + ' — ' + fl.length + ' ملف' + (bins.length ? ' + ' + bins.length + ' ثنائي' : '') + ' — ' + new Date().toISOString().slice(0, 10);
   const head1 = N => '# CodePatcher Bundle v1\n' + meta + (N > 1 ? ' — جزء 1/' + N : '') + '\n' + (instr ? bundleInstr(N) + '\n' : '') +
     '\n## خريطة الملفات\n' + bundleTree(fl.map(f => f.name), bins) + '\n\n## محتوى الملفات\n\n';
-  const groups = [[]]; let tok = estTokens(head1(2));
-  blocks.forEach(b => {
-    const bt = estTokens(b), g = groups[groups.length - 1];
-    if (limit && g.length && tok + bt > limit) { groups.push([b]); tok = 40 + bt; } else { g.push(b); tok += bt; }
+  const headN = (i, N) => '# CodePatcher Bundle v1 (تكملة)\n# جزء ' + (i + 1) + '/' + N + ' — الخريطة في الجزء الأول\n\n';
+  const tailN = (i, N) => N > 1 ? '# — نهاية الجزء ' + (i + 1) + '/' + N + (i + 1 < N ? ' — سيصل الجزء التالي' : ' — انتهى') + ' —\n' : '';
+  const MAXN = 999, tl = tailN(MAXN - 2, MAXN).length;
+  const room1 = limit ? limit - head1(MAXN).length - tl : Infinity;
+  const roomN = limit ? limit - headN(MAXN - 2, MAXN).length - tl : Infinity;
+  const groups = [{ u: [], n: 0 }], capOf = () => groups.length === 1 ? room1 : roomN;
+  const addNew = u => groups.push({ u: [u], n: u.length });
+  const add = u => { const g = groups[groups.length - 1]; g.u.push(u); g.n += u.length; };
+  fl.forEach(f => {
+    const t = nl(f.content).replace(/\s+$/, ''), L = bLines(t);
+    const full = '=== FILE: ' + f.name + ' (' + L + ' lines) ===\n' + t + '\n\n';
+    const g = groups[groups.length - 1], remaining = capOf() - g.n;
+    if (!limit || full.length <= remaining) return add(full);
+    if (full.length <= roomN) return addNew(full);
+    const over = f.name.length + 100, startNew = remaining - over < 1500;
+    let max = startNew ? roomN - over : remaining - over;
+    const bodies = []; let cur = [], n = 0, startLine = 1, ln = 0;
+    const flush = () => { if (cur.length) { bodies.push({ a: startLine, b: ln, text: cur.join('\n') }); cur = []; n = 0; startLine = ln + 1; max = roomN - over; } };
+    t.split('\n').forEach(line => {
+      while (line.length > max - 1) { if (cur.length) flush(); ln++; bodies.push({ a: ln, b: ln, text: line.slice(0, max - 1) }); line = line.slice(max - 1); startLine = ln; ln--; max = roomN - over; }
+      if (n + line.length + 1 > max) flush();
+      ln++; cur.push(line); n += line.length + 1;
+    });
+    flush();
+    bodies.forEach((p, k) => {
+      const u = '=== FILE: ' + f.name + ' (جزء ' + (k + 1) + '/' + bodies.length + ' من الملف — أسطر ' + p.a + '–' + p.b + ' من ' + L + ') ===\n' + p.text + '\n\n';
+      if (k === 0 && !startNew) add(u); else addNew(u);
+    });
   });
   const N = groups.length;
-  return groups.map((g, i) => {
-    const head = i === 0 ? head1(N) : '# CodePatcher Bundle v1 (تكملة)\n# جزء ' + (i + 1) + '/' + N + ' — الخريطة في الجزء الأول\n\n';
-    const tail = N > 1 ? '# — نهاية الجزء ' + (i + 1) + '/' + N + (i + 1 < N ? ' — سيصل الجزء التالي' : ' — انتهى') + ' —\n' : '';
-    return head + g.join('') + tail;
-  });
+  return groups.map((g, i) => (i === 0 ? head1(N) : headN(i, N)) + g.u.join('') + tailN(i, N));
+}
+function bundleBuild(sel, limit, instr) {
+  const fl = files.filter(f => !sel || f.name.startsWith(sel + '/'));
+  const bins = [...BIN.keys()].map(n => n.replace(/^\/+/, '')).filter(n => !sel || n.startsWith(sel + '/')).sort();
+  return bundleBuildFrom(fl, bins, sel, limit, instr);
 }
 
 function bundleMapText(sel) {
@@ -66,30 +91,57 @@ function exportBundleDialog(sel) {
   const c = cur(); if (c) c.content = editor.value;
   sel = sel || '';
   if (!files.some(f => !sel || f.name.startsWith(sel + '/'))) return toast('لا ملفات للتصدير', 'err');
-  const I = n => '<svg class="ic" aria-hidden="true"><use href="#i-' + n + '"/></svg> ';
+  const I = n => '<svg class="ic" aria-hidden="true"><use href="#i-' + n + '"/></svg>';
+  const base = cleanName(sel ? sel.split('/').pop() : commonRoot()) || 'project';
+  const kfmt = n => n.toLocaleString('en-US');
   const draw = () => {
-    const parts = bundleBuild(sel, bundleOpt.limit, bundleOpt.instr), all = parts.join('\n');
+    const parts = bundleBuild(sel, bundleOpt.limit, bundleOpt.instr), all = parts.join('\n'), N = parts.length;
     const chip = (v, t) => '<button type="button" class="btn' + (bundleOpt.limit === v ? ' primary' : '') + '" data-act="lim" data-v="' + v + '">' + t + '</button>';
-    const partsHtml = parts.length > 1
-      ? parts.map((p, i) => uiRow('cp', 'copy', 'نسخ الجزء ' + (i + 1) + '/' + parts.length + ' ' + uiSub('~' + estTokens(p) + ' tok'), '', 'data-i="' + i + '"')).join('')
-      : uiRow('cp', 'copy', 'نسخ', '', 'data-i="0"');
-    ui.show('<h3>' + I('file-md') + 'نص واحد ' + uiSub('· ~' + estTokens(all) + ' tok · ' + all.length + ' ch') + '</h3>' +
-      uiNote('تقسيم لأجزاء (توكنات تقريبية لكل جزء)') +
-      '<div class="srow">' + chip(0, 'كامل') + chip(6000, '6k') + chip(12000, '12k') + chip(24000, '24k') + '</div>' +
-      (parts.length > 3 ? uiScroll(partsHtml, 'sm') : partsHtml) +
+    const preset = [0, 15000, 30000, 31000].includes(bundleOpt.limit);
+    const partsHtml = parts.map((p, i) => '<div class="part-row"><button type="button" class="btn primary" data-act="cp" data-i="' + i + '"><span class="part-t">' + I('copy') + (N > 1 ? 'نسخ الجزء ' + (i + 1) + '/' + N : 'نسخ') + '</span><small class="meta-sub" dir="ltr">' + kfmt(p.length) + ' ch</small></button>' +
+      '<button type="button" class="btn" data-act="dlp" data-i="' + i + '" aria-label="تنزيل الجزء ' + (i + 1) + '">' + I('arrow-down') + '</button></div>').join('');
+    ui.show('<h3>' + I('file-md') + ' المشروع ← نص للذكاء ' + uiSub(N + (N > 1 ? ' parts' : ' part') + ' · ' + kfmt(all.length) + ' ch · ~' + kfmt(estTokens(all)) + ' tok') + '</h3>' +
+      uiNote('الحد الأقصى للأحرف في الجزء الواحد (بترويسته)') +
+      '<div class="srow">' + chip(0, 'كامل') + chip(15000, '15k') + chip(30000, '30k') + chip(31000, '31k') + '<button type="button" class="btn' + (preset ? '' : ' primary') + '" data-act="limc">' + (preset ? 'مخصص' : kfmt(bundleOpt.limit)) + '</button></div>' +
+      (N > 4 ? uiScroll(partsHtml, 'lg') : partsHtml) +
+      (N > 1 ? uiRow('zip', 'arrow-down', 'تنزيل كل الأجزاء في ملف ZIP', N + ' ملفات نصية') : '') +
+      uiRow('dl', 'arrow-down', N > 1 ? 'تنزيل الكل في ملف نصي واحد' : 'تنزيل ملف نصي') +
       uiRow('map', 'list', 'نسخ خريطة الملفات فقط (بدون محتوى)') +
-      uiRow('dl', 'arrow-down', 'تنزيل ملف .txt') +
       uiRow('ins', bundleOpt.instr ? 'check-square' : 'square', 'تعليمات للنموذج في البداية') +
-      uiNote('الصور والملفات الثنائية تظهر في الخريطة فقط. الملف الأكبر من الحد يبقى في جزء واحد.') +
-      '<button type="button" class="btn" data-ui="cancel">إغلاق</button>', (act, el) => {
+      uiNote('الصور والملفات الثنائية تظهر في الخريطة فقط. الملف الذي يتجاوز الحد يُقسَّم على حدود الأسطر، وأجزاؤه للقراءة فقط وليست لإعادة الاستيراد.') +
+      '<button type="button" class="btn" data-ui="cancel">إغلاق</button>', async (act, el) => {
+        const i = +el.dataset.i || 0;
         if (act === 'lim') { bundleOpt.limit = +el.dataset.v; return draw(); }
+        if (act === 'limc') { const v = await ui.prompt('الحد الأقصى للأحرف في الجزء (مثال 30000)', String(bundleOpt.limit || 30000), 'تطبيق'); if (v != null && +v >= 3000) bundleOpt.limit = Math.round(+v); else if (v != null) toast('أدخل رقماً لا يقل عن 3000', 'err'); return draw(); }
         if (act === 'ins') { bundleOpt.instr = !bundleOpt.instr; return draw(); }
-        if (act === 'cp') { const t = parts[+el.dataset.i || 0]; return copyToClipboard(t).then(() => toast('نُسخ' + (parts.length > 1 ? ' الجزء ' + ((+el.dataset.i || 0) + 1) + '/' + parts.length : '') + ' (~' + estTokens(t) + ' توكن)', 'ok')); }
+        if (act === 'cp') { const t = parts[i]; return copyToClipboard(t).then(() => toast('نُسخ' + (N > 1 ? ' الجزء ' + (i + 1) + '/' + N : '') + ' (' + kfmt(t.length) + ' حرف)', 'ok')); }
+        if (act === 'dlp') { downloadText(parts[i], base + '-bundle-part' + (i + 1) + 'of' + N + '.txt'); return toast('نُزّل الجزء ' + (i + 1) + '/' + N, 'ok'); }
+        if (act === 'zip') { const r = await saveBundleAsZip(parts.map((p, k) => ({ path: base + '-bundle-part' + (k + 1) + 'of' + N + '.txt', content: p })), base + '-bundle-parts'); if (r && r.status === 'ok') toast('تم حفظ ' + N + ' أجزاء', 'ok'); return; }
         if (act === 'map') { const t = bundleMapText(sel); return copyToClipboard(t).then(() => toast('نُسخت الخريطة (~' + estTokens(t) + ' توكن)', 'ok')); }
-        if (act === 'dl') { downloadText(all, (cleanName(sel ? sel.split('/').pop() : commonRoot()) || 'project') + '-bundle.txt'); return toast('نُزّل الملف', 'ok'); }
+        if (act === 'dl') { downloadText(all, base + '-bundle.txt'); return toast('نُزّل الملف', 'ok'); }
       });
   };
   draw();
+}
+
+/* اختبارات نقية لحد الأحرف */
+function pureTestsBundle() {
+  const T = [], t = (n, ok) => T.push({ n, ok: !!ok }), mk = (n, c) => ({ name: n, content: c });
+  const big = Array.from({ length: 900 }, (_, i) => 'const v' + i + ' = ' + i + '; // سطر رقم ' + i).join('\n');
+  const fl = [mk('a.js', 'x'.repeat(500)), mk('b/big.js', big), mk('c.md', 'نص عربي '.repeat(300)), mk('d.css', 'y{}\n'.repeat(400))];
+  [3000, 12000, 30000, 31000].forEach(lim => {
+    const parts = bundleBuildFrom(fl, [], '', lim, true);
+    t('bundle: لا جزء يتجاوز ' + lim + ' حرفاً (' + parts.length + ' أجزاء)', parts.every(p => p.length <= lim));
+  });
+  const p30 = bundleBuildFrom(fl, [], '', 30000, true), joined = p30.join('');
+  t('bundle: كل ملف حاضر في الأجزاء', fl.every(f => joined.includes('=== FILE: ' + f.name)));
+  t('bundle: الملف الكبير قُسِّم بترويسة تكملة', /جزء 1\/\d+ من الملف/.test(bundleBuildFrom(fl, [], '', 12000, false).join('')));
+  const lines = []; bundleBuildFrom([mk('z.js', big)], [], '', 3000, false).forEach(p => p.replace(/=== FILE: z\.js \(جزء \d+\/\d+ من الملف — أسطر (\d+)–(\d+) من \d+\) ===\n([\s\S]*?)\n\n/g, (_, a, b, body) => { lines.push(body); }));
+  t('bundle: إعادة تجميع أجزاء الملف تطابق الأصل', lines.join('\n') === big);
+  t('bundle: limit=0 جزء واحد', bundleBuildFrom(fl, [], '', 0, true).length === 1);
+  const one = bundleBuildFrom([mk('m.min.js', 'q'.repeat(20000))], [], '', 5000, false);
+  t('bundle: سطر واحد طويل يُقطَّع ضمن الحد', one.length > 3 && one.every(p => p.length <= 5000));
+  return T;
 }
 
 /* ===== الاستيراد ===== */

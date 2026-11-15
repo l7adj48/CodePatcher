@@ -115,6 +115,15 @@ function pureTests7() {
   t('R6: rWhatDiff يحدد أول اختلاف', d.at === 2 && /المسافات/.test(d.why));
   const w = makeError('PATCH_NOT_FOUND', 'x', { file: 'f.js', intended: 'q' });
   t('R6: makeError يحمل file وintended', w.file === 'f.js' && w.intended === 'q');
+  const mkEv = blocked => {
+    const err = makeError('PATCH_NOT_FOUND', 'عنوان #2', { patchIndex: 2, action: 'replace', file: 'a.js', searchText: 'zzz qqq' });
+    const results = [{ n: 1, status: 'applied' }, { n: 2, status: 'failed', error: err }, { n: 3, status: 'applied' }, { n: 4, status: 'applied' }];
+    return repairReportText([err], { ev: { results, blocked }, dry: false, active: 'a.js', text: n => n === 'a.js' ? src : null, files: ['a.js'], patchInput: '', smoke: null, lint: [], lintName: 'a.js', con: [] });
+  };
+  r = mkEv(true);
+  t('R7: يطلب دائماً إعادة كل الباتشات (الدفعة مرفوضة)', r.includes('أعد **كل** باتشات الدفعة (4)') && r.includes('تحوي كل الباتشات (#1 إلى #4)') && !r.includes('الفاشلة فقط') && !r.includes('طُبِّقت'));
+  r = mkEv(false);
+  t('R7: يطلب كل الباتشات حتى لو لم تُرفض الدفعة (المعاينة يُتراجع عنها)', r.includes('أعد **كل** باتشات الدفعة (4)') && r.includes('لم يُعتمد أي باتش') && !r.includes('الفاشلة فقط') && !r.includes('فلا تعد توليدها'));
   return T;
 }
 function pureTests6() {
