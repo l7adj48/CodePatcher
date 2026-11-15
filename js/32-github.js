@@ -1,11 +1,32 @@
 'use strict';
 /* الدفع إلى GitHub: commit واحد لكل الملفات المتغيرة عبر Git Data API */
 const GH_KEY = 'CodePatcher_github';
+function ghKey() { try { return (typeof commonRoot === 'function' && commonRoot()) || '_'; } catch (e) { return '_'; } }
+function ghRaw() { let c = null; try { c = JSON.parse(localStorage.getItem(GH_KEY) || 'null'); } catch (e) { } return c || {}; }
+/* لكل مشروع مستودعه المحفوظ؛ وإن لم يُضبط بعد فآخر مستودع استُعمل */
 function ghCfg() {
-  let c = null; try { c = JSON.parse(localStorage.getItem(GH_KEY) || 'null'); } catch (e) { }
-  c = c || {}; return { token: c.token || '', repo: c.repo || '', branch: c.branch || 'main', dir: c.dir || '' };
+  const c = ghRaw(), m = (c.map && c.map[ghKey()]) || c;
+  return { token: c.token || '', repo: m.repo || '', branch: m.branch || 'main', dir: m.dir || '' };
 }
-function ghSaveCfg(c) { try { localStorage.setItem(GH_KEY, JSON.stringify(c)); return true; } catch (e) { return false; } }
+function ghSaveCfg(n) {
+  const c = ghRaw(); c.token = n.token; c.repo = n.repo; c.branch = n.branch; c.dir = n.dir;
+  c.map = c.map || {}; c.map[ghKey()] = { repo: n.repo, branch: n.branch, dir: n.dir };
+  try { localStorage.setItem(GH_KEY, JSON.stringify(c)); return true; } catch (e) { return false; }
+}
+function ghSetToken(t) { const c = ghRaw(); c.token = t; try { localStorage.setItem(GH_KEY, JSON.stringify(c)); return true; } catch (e) { return false; } }
+/* خانة التوكن: يُلصق ويُفحص ثم يُحفظ على الجهاز فقط */
+async function ghAskToken() {
+  const v = await ui.prompt('الصق توكن GitHub هنا', '', 'حفظ');
+  const t = String(v || '').replace(/\s+/g, '');
+  if (!t) return '';
+  if (t.length < 20) { toast('هذا لا يبدو توكناً صحيحاً — انسخه كاملاً من GitHub', 'err'); return ''; }
+  let who = '';
+  try { const u = await ghApi({ token: t }, 'GET', '/user'); who = u && u.login ? u.login : ''; }
+  catch (e) { if (e && e.status === 401) { toast('التوكن غير صالح أو منتهي', 'err'); return ''; } }
+  if (!ghSetToken(t)) { toast('تعذّر حفظ التوكن في هذا المتصفح', 'err'); return ''; }
+  toast('حُفظ التوكن' + (who ? ' — الحساب: ' + who : ''), 'ok');
+  return t;
+}
 function ghRepoOk(v) { return /^[\w.-]+\/[\w.-]+$/.test(v); }
 function ghB64(u8) { let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode.apply(null, u8.subarray(i, i + 8192)); return btoa(s); }
 async function ghBlobSha(u8) {
@@ -45,8 +66,9 @@ function ghCollect(c) {
 }
 async function githubPush() {
   const cc = cur(); if (cc) cc.content = editor.value;
-  const c = ghCfg();
-  if (!c.token || !ghRepoOk(c.repo)) return githubSettings(true);
+  let c = ghCfg();
+  if (!c.token) { if (!(await ghAskToken())) return; c = ghCfg(); }
+  if (!ghRepoOk(c.repo)) return githubPick();
   if (!files.length) return toast('لا ملفات للدفع', 'err');
   const msg = await ui.prompt('رسالة الـ commit', 'تحديث من CodePatcher ' + new Date().toISOString().slice(0, 16).replace('T', ' '), 'دفع');
   if (msg == null) return;
@@ -97,16 +119,41 @@ function githubSettings(thenPush) {
       if (thenPush === true) setTimeout(githubPush, 150);
     });
 }
+async function ghListRepos(c) {
+  let out = [];
+  for (let p = 1; p <= 3; p++) {
+    const j = await ghApi(c, 'GET', '/user/repos?per_page=100&sort=pushed&page=' + p);
+    out = out.concat(j); if (j.length < 100) break;
+  }
+  return out.filter(r => !r.permissions || r.permissions.push);
+}
+async function githubPick() {
+  let c = ghCfg(); if (!c.token) { if (!(await ghAskToken())) return; c = ghCfg(); }
+  toast('جارٍ جلب مستودعاتك…', '');
+  let list; try { list = await ghListRepos(c); } catch (e) { return toast('تعذّر جلب المستودعات: ' + ghErrText(e), 'err'); }
+  if (!list.length) return toast('لا مستودعات متاحة لهذا التوكن', 'err');
+  const rows = list.map((r, i) => uiRow('pick', 'external', esc(r.full_name), esc(r.default_branch) + (r.private ? ' · خاص' : ' · عام'), 'data-i="' + i + '"')).join('');
+  ui.show('<h3>اختر المستودع ' + uiSub(list.length) + '</h3>' + uiScroll(rows, 'lg') + '<button type="button" class="btn" data-ui="cancel">إلغاء</button>', (act, el) => {
+    if (act !== 'pick') return;
+    const r = list[+el.dataset.i], cur0 = ghCfg();
+    ghSaveCfg({ token: c.token, repo: r.full_name, branch: r.default_branch || 'main', dir: r.full_name === cur0.repo ? cur0.dir : '' });
+    ui.close(null); toast('اخترت: ' + r.full_name, 'ok'); setTimeout(githubDialog, 150);
+  });
+}
 function githubDialog() {
   const c = ghCfg(), ok = !!(c.token && ghRepoOk(c.repo)), pages = ok ? 'https://' + c.repo.split('/')[0].toLowerCase() + '.github.io/' + c.repo.split('/')[1] + '/' : '';
   const I = n => '<svg class="ic" aria-hidden="true"><use href="#i-' + n + '"/></svg> ';
   ui.show('<h3>' + I('external') + 'GitHub ' + uiSub(ok ? esc(c.repo) + '@' + esc(c.branch) : 'غير مضبوط') + '</h3>' +
     uiRow('push', 'arrow-down', 'دفع المشروع إلى GitHub', ok ? 'commit واحد للملفات المتغيرة فقط' : 'يلزم ضبط المستودع والتوكن أولاً') +
+    uiRow('tok', 'edit', 'التوكن', c.token ? 'محفوظ ✓ — اضغط لتغييره' : 'غير محفوظ — اضغط للصقه') +
+    uiRow('pick', 'folder-open', 'اختيار مستودع من حسابك') +
     uiRow('set', 'edit', 'إعدادات GitHub') +
     (ok ? uiRow('pages', 'external', 'فتح الموقع (GitHub Pages)', esc(pages)) : '') +
     uiNote('الملفات المحذوفة من المشروع لا تُحذف من المستودع. بعد الدفع يحتاج GitHub Pages إلى دقيقة ليُحدّث الموقع.') +
     '<button type="button" class="btn" data-ui="cancel">إغلاق</button>', act => {
       if (act === 'push') { ui.close(null); return void setTimeout(githubPush, 120); }
+      if (act === 'tok') { ui.close(null); return void setTimeout(async () => { await ghAskToken(); githubDialog(); }, 120); }
+      if (act === 'pick') { ui.close(null); return void setTimeout(githubPick, 120); }
       if (act === 'set') { ui.close(null); return void setTimeout(githubSettings, 120); }
       if (act === 'pages') { window.open(pages, '_blank', 'noopener'); }
     });
