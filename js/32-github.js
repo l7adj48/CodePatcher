@@ -140,12 +140,60 @@ async function githubPick() {
     ui.close(null); toast('اخترت: ' + r.full_name, 'ok'); setTimeout(githubDialog, 150);
   });
 }
+function ghSlug(v) { return String(v || '').trim().replace(/\s+/g, '-').replace(/[^A-Za-z0-9._-]/g, '').replace(/^\.+/, '').slice(0, 80); }
+/* ينشئ المستودع (مع README ليكون غير فارغ) ويفعّل Pages اختيارياً؛ فشل Pages لا يُفشل الإنشاء */
+async function ghCreateRepo(c, st) {
+  const r = await ghApi(c, 'POST', '/user/repos', { name: st.name, description: st.desc || '', private: !!st.priv, auto_init: true });
+  const br = r.default_branch || 'main'; let pages = false;
+  if (st.pages && !st.priv) { try { await ghApi(c, 'POST', '/repos/' + r.full_name + '/pages', { source: { branch: br, path: '/' } }); pages = true; } catch (e) { } }
+  return { repo: r.full_name, branch: br, pages };
+}
+function ghCreateErr(e) {
+  const s = e && e.status;
+  if (s === 422) return 'الاسم مستخدم عندك مسبقاً أو غير صالح — جرّب اسماً آخر';
+  if (s === 401) return 'التوكن غير صالح أو منتهي';
+  if (s === 403 || s === 404) return 'التوكن لا يملك صلاحية إنشاء المستودعات (Administration: Read and write) — عدّل صلاحياته أو أنشئ المستودع من موقع GitHub';
+  return ghErrText(e);
+}
+async function githubCreate() {
+  let c = ghCfg(); if (!c.token) { if (!(await ghAskToken())) return; c = ghCfg(); }
+  const st = { name: ghSlug(ghKey() === '_' ? '' : ghKey()), desc: '', priv: false, pages: true };
+  const inp = (id, v) => '<input type="text" id="' + id + '" dir="ltr" autocapitalize="off" autocomplete="off" spellcheck="false" value="' + esc(v) + '">';
+  const chip = (act, on, t) => '<button type="button" class="btn' + (on ? ' primary' : '') + '" data-act="' + act + '">' + t + '</button>';
+  const draw = () => {
+    ui.show('<h3>مستودع جديد</h3>' +
+      '<div class="slabel">الاسم (حروف إنجليزية وأرقام و - فقط)</div>' + inp('ghNName', st.name) +
+      '<div class="slabel">الوصف (اختياري)</div>' + inp('ghNDesc', st.desc) +
+      '<div class="slabel">الظهور</div><div class="srow">' + chip('pub', !st.priv, 'عام') + chip('prv', st.priv, 'خاص') + '</div>' +
+      '<div class="slabel">موقع المشروع (GitHub Pages)</div><div class="srow">' + chip('pgon', st.pages && !st.priv, 'تفعيل') + chip('pgoff', !st.pages || st.priv, 'بدون') + '</div>' +
+      uiNote('Pages يحتاج مستودعاً عاماً في الحساب المجاني. يُنشأ المستودع ومعه ملف README ثم تدفع مشروعك إليه.') +
+      '<div class="srow"><button type="button" class="btn" data-ui="cancel">إلغاء</button><button type="button" class="btn primary" data-act="mk">إنشاء</button></div>', async act => {
+        const a = $('ghNName'), b = $('ghNDesc'); if (a) st.name = a.value; if (b) st.desc = b.value;
+        if (act === 'pub') { st.priv = false; return draw(); }
+        if (act === 'prv') { st.priv = true; return draw(); }
+        if (act === 'pgon') { st.pages = true; return draw(); }
+        if (act === 'pgoff') { st.pages = false; return draw(); }
+        if (act !== 'mk') return;
+        st.name = ghSlug(st.name); if (!st.name) return toast('اكتب اسماً بالإنجليزية', 'err');
+        toast('جارٍ إنشاء المستودع…', '');
+        try {
+          const r = await ghCreateRepo(c, st);
+          ghSaveCfg({ token: c.token, repo: r.repo, branch: r.branch, dir: '' });
+          log('ok', 'GitHub: أُنشئ المستودع ' + r.repo);
+          ui.close(null);
+          toast('أُنشئ ' + r.repo + (st.pages && !st.priv ? (r.pages ? ' وفُعّل الموقع' : ' — تعذّر تفعيل Pages، فعّله من إعدادات المستودع') : ''), 'ok', { label: 'دفع المشروع الآن', fn: githubPush });
+        } catch (e) { toast('فشل الإنشاء: ' + ghCreateErr(e), 'err'); }
+      });
+  };
+  draw();
+}
 function githubDialog() {
   const c = ghCfg(), ok = !!(c.token && ghRepoOk(c.repo)), pages = ok ? 'https://' + c.repo.split('/')[0].toLowerCase() + '.github.io/' + c.repo.split('/')[1] + '/' : '';
   const I = n => '<svg class="ic" aria-hidden="true"><use href="#i-' + n + '"/></svg> ';
   ui.show('<h3>' + I('external') + 'GitHub ' + uiSub(ok ? esc(c.repo) + '@' + esc(c.branch) : 'غير مضبوط') + '</h3>' +
     uiRow('push', 'arrow-down', 'دفع المشروع إلى GitHub', ok ? 'commit واحد للملفات المتغيرة فقط' : 'يلزم ضبط المستودع والتوكن أولاً') +
     uiRow('tok', 'edit', 'التوكن', c.token ? 'محفوظ ✓ — اضغط لتغييره' : 'غير محفوظ — اضغط للصقه') +
+    uiRow('new', 'plus', 'مستودع جديد', 'الاسم والوصف ثم يُنشأ ويُضبط تلقائياً') +
     uiRow('pick', 'folder-open', 'اختيار مستودع من حسابك') +
     uiRow('set', 'edit', 'إعدادات GitHub') +
     (ok ? uiRow('pages', 'external', 'فتح الموقع (GitHub Pages)', esc(pages)) : '') +
@@ -153,6 +201,7 @@ function githubDialog() {
     '<button type="button" class="btn" data-ui="cancel">إغلاق</button>', act => {
       if (act === 'push') { ui.close(null); return void setTimeout(githubPush, 120); }
       if (act === 'tok') { ui.close(null); return void setTimeout(async () => { await ghAskToken(); githubDialog(); }, 120); }
+      if (act === 'new') { ui.close(null); return void setTimeout(githubCreate, 120); }
       if (act === 'pick') { ui.close(null); return void setTimeout(githubPick, 120); }
       if (act === 'set') { ui.close(null); return void setTimeout(githubSettings, 120); }
       if (act === 'pages') { window.open(pages, '_blank', 'noopener'); }
