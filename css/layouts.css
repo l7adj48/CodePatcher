@@ -967,13 +967,11 @@ body > header, body > .tabbar, body > .nav, body > .panels, body > .symbol-bar {
 .explorer-search .search-clr[hidden] { display: none; }
 
 #dtool { display: flex; flex-direction: column; gap: 7px; flex-shrink: 0; }
-.dtool-label { display: flex; align-items: center; justify-content: space-between; padding: 0 2px; }
-.dtool-label b { font-size: 11.5px; color: var(--text-secondary); }
-.dtool-label span { font-size: 10.5px; color: var(--text-muted); }
 .dtool-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .dtb {
-  height: 60px;
-  min-height: 60px;
+  position: relative;
+  height: 56px;
+  min-height: 56px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -987,13 +985,25 @@ body > header, body > .tabbar, body > .nav, body > .panels, body > .symbol-bar {
   font: 600 10.5px var(--font-ui);
   white-space: nowrap;
   cursor: pointer;
-  transition: transform var(--motion-fast), border-color var(--motion-fast), background var(--motion-fast);
+  transition: transform var(--motion-fast), border-color var(--motion-fast), background var(--motion-fast), color var(--motion-fast);
 }
-.dtb svg { width: 18px; height: 18px; color: var(--color-primary-hover); }
+.dtb > svg { width: 18px; height: 18px; color: var(--text-primary); }
+.dtb > span { display: inline-flex; align-items: center; gap: 3px; }
+.dtb > span svg { width: 10px; height: 10px; color: var(--text-muted); stroke-width: 2.6; transition: transform var(--motion-fast); }
 .dtb:hover { border-color: var(--border-strong); color: var(--text-primary); }
 .dtb:active { transform: scale(0.96); background: var(--surface-active); }
+.dtb.open { background: var(--surface-active); border-color: var(--border-focus); color: var(--text-primary); }
+.dtb.open > span svg { transform: rotate(180deg); color: var(--text-primary); }
 .dtb.primary { background: linear-gradient(180deg, var(--color-primary-hover), var(--color-primary-strong)); border-color: transparent; color: var(--text-on-primary); box-shadow: var(--shadow-primary); font-weight: 700; }
-.dtb.primary svg { color: var(--text-on-primary); }
+.dtb.primary > svg, .dtb.primary > span svg { color: var(--text-on-primary); }
+.dtb.primary.open { filter: brightness(1.08); }
+/* شعار GitHub الرسمي: أحادي اللون يتبع لون النص (أبيض في الداكن وأسود في الفاتح) */
+.ic.brand { fill: currentColor; stroke: none; color: var(--text-primary) !important; }
+#giMode .btn.primary, .gi-tabs .btn.primary { background: var(--color-primary-soft); border-color: var(--border-focus); color: var(--color-primary-hover); box-shadow: none; }
+.explorer-side { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.ex-sel { width: 30px; height: 28px; display: grid; place-items: center; border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); background: var(--surface-control-flat); color: var(--text-secondary); cursor: pointer; }
+.ex-sel svg { width: 16px; height: 16px; }
+.ex-sel:hover, .ex-sel:active { color: var(--text-primary); border-color: var(--border-strong); background: var(--surface-hover); }
 
 .selbar { display: none; align-items: center; gap: 3px; height: 46px; min-height: 46px; border: 1px solid var(--border-strong); border-radius: var(--radius-card); background: var(--color-primary-soft); padding: 0 5px; flex-shrink: 0; }
 .selbar .sc { flex: 1; font-size: 11.5px; font-weight: 700; padding-inline: 8px; color: var(--text-primary); }
@@ -1043,7 +1053,10 @@ body > header, body > .tabbar, body > .nav, body > .panels, body > .symbol-bar {
 .tr.chk { border-color: var(--color-accent); background: var(--color-accent-soft); }
 .tr .fi { width: 32px; height: 32px; display: grid; place-items: center; flex: 0 0 32px; border-radius: var(--radius-sm); }
 .tr .fi svg { width: 18px; height: 18px; }
-.tr .tl { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; min-height: 44px; }
+.tr .ext { flex-shrink: 0; padding: 2px 5px; border: 1px solid var(--border-subtle); border-radius: 4px; font: 600 9px var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+.tr.act .fi { color: var(--color-primary-hover); }
+.tr.act .ext { color: var(--text-secondary); border-color: var(--border-default); }
+.tr .tl { display: flex; flex-direction: row; align-items: center; gap: 10px; flex: 1; min-width: 0; min-height: 44px; }
 .tr .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 500; color: var(--text-primary); }
 .tr .cnt { padding: 3px 7px; border-radius: var(--radius-xs); background: var(--surface-control-flat); font: 10.5px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-muted); flex-shrink: 0; }
 .tr .dtd { width: 7px; height: 7px; border-radius: 50%; background: var(--color-warning); flex-shrink: 0; }
@@ -1079,3 +1092,5 @@ body > header, body > .tabbar, body > .nav, body > .panels, body > .symbol-bar {
 .scope-name{flex:1;min-width:0;text-align:start;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:none;border:0;color:inherit;font:inherit;padding:0 4px;height:100%}
 .scope-list{flex-shrink:0;width:34px;height:100%;background:none;border:0;color:inherit;display:grid;place-items:center}
 .scope-list:active,.scope-name:active{color:var(--accent)}
+
+#giList .mi[data-on] { border-color: var(--border-focus); background: var(--color-primary-soft); }

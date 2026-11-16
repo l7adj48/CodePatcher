@@ -48,7 +48,7 @@ body.side-open > .symbol-bar {
   .bbtn { width: 32px; min-width: 31px; }
   .dbody { padding: 10px; }
   .dtool-grid { gap: 5px; }
-  .dtb { height: 56px; min-height: 56px; font-size: 9.5px; }
+  .dtb { height: 52px; min-height: 52px; font-size: 9.5px; }
   .explorer-title small { max-width: 170px; }
   .tr { min-height: 44px; height: 44px; }
   .form { padding-inline: 10px; }
