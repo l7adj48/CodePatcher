@@ -41,5 +41,5 @@ All 5 CSS files are registered in `sw.js`.
 ## Files Explorer Toolbar (`js/33-files-toolbar.js`)
 
 - The explorer drawer toolbar has four buttons — **New / Import / Export / GitHub** — each opening an anchored dropdown (`.pop.tb-pop`) in place; no extra modal opens just to choose an action.
-- Icons are monochrome (`currentColor`); the GitHub mark uses `.ic.brand` and follows the text color (white in dark themes, black in light themes). File-type is shown by a small extension chip (`.tr .ext`) instead of colored icons.
+- Toolbar and menu icons are monochrome (`currentColor`); the GitHub mark uses `.ic.brand` and follows the text color (white in dark themes, black in light themes). File and folder icons keep their original per-type colors.
 - GitHub import (`ghImportDialog` / `ghImportRun` / `ghPull` in `js/32-github.js`) works for public repos without a token and for private repos once linked.
