@@ -37,3 +37,9 @@ All 5 CSS files are registered in `sw.js`.
 - `js/06-ui-core.js` provides declarative UI template helpers without altering any operational state or engine behavior.
 - `30-home.js` fills the Workspace Command Center (`#p-home`) and Recent Files; the bottom navigation and the `#p-home` container are declared in `index.html`, not built at runtime. `31-outline.js` adds the file outline and scope bar.
 - CSS describes appearance and state; JavaScript remains the single authority for application state.
+
+## Files Explorer Toolbar (`js/33-files-toolbar.js`)
+
+- The explorer drawer toolbar has four buttons — **New / Import / Export / GitHub** — each opening an anchored dropdown (`.pop.tb-pop`) in place; no extra modal opens just to choose an action.
+- Icons are monochrome (`currentColor`); the GitHub mark uses `.ic.brand` and follows the text color (white in dark themes, black in light themes). File-type is shown by a small extension chip (`.tr .ext`) instead of colored icons.
+- GitHub import (`ghImportDialog` / `ghImportRun` / `ghPull` in `js/32-github.js`) works for public repos without a token and for private repos once linked.
