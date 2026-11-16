@@ -3,9 +3,10 @@
 const GH_KEY = 'CodePatcher_github';
 function ghKey() { try { return (typeof commonRoot === 'function' && commonRoot()) || '_'; } catch (e) { return '_'; } }
 function ghRaw() { let c = null; try { c = JSON.parse(localStorage.getItem(GH_KEY) || 'null'); } catch (e) { } return c || {}; }
-/* لكل مشروع مستودعه المحفوظ؛ وإن لم يُضبط بعد فآخر مستودع استُعمل */
+/* لكل مشروع مستودعه المحفوظ. مشروع بلا مستودع محفوظ يبقى بلا مستودع (يُختار يدوياً) كي لا يُدفع بالخطأ إلى مستودع مشروع آخر.
+   الرجوع إلى آخر مستودع للإعدادات القديمة فقط (قبل وجود map) */
 function ghCfg() {
-  const c = ghRaw(), m = (c.map && c.map[ghKey()]) || c;
+  const c = ghRaw(), m = c.map ? (c.map[ghKey()] || {}) : c;
   return { token: c.token || '', repo: m.repo || '', branch: m.branch || 'main', dir: m.dir || '', jk: !!m.jk };
 }
 function ghSaveCfg(n) {
@@ -58,13 +59,41 @@ function ghCollect(c) {
   return out;
 }
 function ghDefMsg() { return 'تحديث من CodePatcher ' + new Date().toISOString().slice(0, 16).replace('T', ' '); }
-/* msg: نص جاهز، أو undefined فيُسأل المستخدم */
-async function githubPush(msg) {
+function ghProjName() { const k = ghKey(); return k === '_' ? '' : k; }
+function ghNorm(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+/* اسم المستودع لا يشبه اسم المشروع (يعمل فقط حين يكون اسم المشروع بحروف إنجليزية) */
+function ghMismatch(c) {
+  const p = ghNorm(ghProjName()), r = ghNorm((String(c.repo).split('/')[1]) || '');
+  return !!(p && r && p.indexOf(r) < 0 && r.indexOf(p) < 0);
+}
+/* بطاقة الوجهة: اسم المستودع كبير وواضح، ثم الحساب والفرع، ثم اسم المشروع الحالي للمقارنة */
+function ghTargetCard(c) {
+  const o = String(c.repo).split('/'), pn = ghProjName();
+  return '<div class="slabel">سيُدفع المشروع إلى المستودع</div>' +
+    '<h3 dir="ltr">' + esc(o[1] || c.repo) + '</h3>' +
+    '<div class="slabel" dir="ltr">' + esc(o[0] || '') + ' · branch: ' + esc(c.branch) + (c.dir ? ' · /' + esc(c.dir) : '') + '</div>' +
+    (pn ? uiNote('المشروع الحالي: <bdi>' + esc(pn) + '</bdi>') : '') +
+    (ghMismatch(c) ? uiNote('تنبيه: اسم المستودع لا يشبه اسم المشروع — تأكد أنه المستودع الصحيح') : '');
+}
+/* نافذة رسالة الـ commit مع إظهار المستودع الذي سيُدفع إليه. تعيد النص، أو null عند الإلغاء */
+function ghAskPush(c, def) {
+  return new Promise(res => {
+    ui.show(ghHead('') + ghTargetCard(c) +
+      '<div class="slabel">رسالة الـ commit</div><input type="text" id="uiIn" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false">' +
+      '<div class="srow"><button type="button" class="btn" data-ui="cancel">إلغاء</button><button type="button" class="btn primary" data-ui="ok">دفع</button></div>');
+    ui.kind = 'prompt'; ui.resolve = res;
+    const i = $('uiIn'); i.value = def || '';
+    i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); ui.close(i.value); } });
+    setTimeout(() => { i.focus(); i.select(); }, 60);
+  });
+}
+/* msg: نص جاهز، أو undefined فيُسأل المستخدم (مع إظهار المستودع). def: رسالة افتراضية للسؤال */
+async function githubPush(msg, def) {
   const cc = cur(); if (cc) cc.content = editor.value;
   const c = ghCfg();
   if (!c.token || !ghRepoOk(c.repo)) return githubDialog();
   if (!files.length) return toast('لا ملفات للدفع', 'err');
-  if (msg === undefined) { msg = await ui.prompt('رسالة الـ commit', ghDefMsg(), 'دفع'); if (msg == null) return; }
+  if (msg === undefined) { msg = await ghAskPush(c, def || ghDefMsg()); if (msg == null) return; }
   msg = String(msg).trim() || ghDefMsg();
   const R = '/repos/' + c.repo, say = t => toast(t, ''), brp = encodeURIComponent(c.branch).replace(/%2F/g, '/');
   try {
@@ -74,6 +103,10 @@ async function githubPush(msg) {
     const tr = await ghApi(c, 'GET', R + '/git/trees/' + cm.tree.sha + '?recursive=1');
     const have = new Map(); (tr.tree || []).forEach(t => { if (t.type === 'blob') have.set(t.path, t.sha); });
     const all = ghCollect(c), changed = [];
+    /* حماية: مستودع فيه ملفات كثيرة لا يطابق مشروعك تقريباً = غالباً مستودع مشروع آخر */
+    let ov = 0; all.forEach((_, p) => { if (have.has(p)) ov++; });
+    if (!tr.truncated && have.size >= 5 && all.size >= 3 && ov / all.size < 0.3 &&
+      !(await ui.confirm('تحذير: المستودع ' + c.repo + ' فيه ' + have.size + ' ملفاً، ولا يطابق مشروعك الحالي (' + all.size + ' ملفاً) إلا ' + ov + ' منها. قد يكون مستودع مشروع آخر. هل تدفع إليه رغم ذلك؟', 'ادفع رغم ذلك'))) return toast('أُلغي الدفع ولم يتغيّر شيء في المستودع', '');
     const jk = c.jk ? await jkApply(c, all, new Set(have.keys()), say) : null;
     for (const [path, u8] of all) { const sha = tr.truncated ? '' : await ghBlobSha(u8); if (!sha || have.get(path) !== sha) changed.push([path, u8]); }
     if (!changed.length) {
@@ -137,25 +170,35 @@ function ghRepoRows(list, q) {
     .map(x => uiRow('pick', 'github', esc(x[0].full_name), esc(x[0].default_branch) + (x[0].private ? ' · خاص' : ' · عام'), 'data-i="' + x[1] + '"')).join('');
   return rows || uiEmpty('لا نتائج');
 }
-/* حالة موقع Pages ورابطه (للزر وسطر الحالة). لا يرمي أخطاء */
-async function ghPagesState(c) {
-  let p;
-  try { p = await ghApi(c, 'GET', '/repos/' + c.repo + '/pages'); }
-  catch (e) { return { t: e && e.status === 404 ? 'غير مفعّل بعد — اضغط «تفعيل Jekyll + PWA»' : 'غير معروف (تحقق من صلاحية Pages للتوكن)', url: '' }; }
-  const url = p.html_url || '';
-  if (p.build_type === 'workflow') {
+/* حالة الموقع: on (مفعّل) | off (غير مفعّل) | unknown (غير معروف) | na (غير متاح). لا يرمي أخطاء.
+   «مفعّل» = Pages موجود بمصدر Actions ووضع Jekyll مفعّل لهذا المستودع */
+async function ghSiteState(c) {
+  let p = null, err = null;
+  try { p = await ghApi(c, 'GET', '/repos/' + c.repo + '/pages'); } catch (e) { err = e; }
+  if (p) {
+    const url = p.html_url || jkSiteUrl(c.repo);
+    if (p.build_type !== 'workflow' || !c.jk) return { k: 'off', url };
+    let t = p.status === 'built' ? 'جاهز' : p.status === 'building' ? 'يُبنى الآن…' : p.status === 'errored' ? 'فشل البناء' : 'مفعّل';
     try {
       const r = await ghApi(c, 'GET', '/repos/' + c.repo + '/actions/runs?per_page=1'), w = r.workflow_runs && r.workflow_runs[0];
-      if (w) return { t: w.status !== 'completed' ? 'يُبنى الآن…' : w.conclusion === 'success' ? 'جاهز' : 'فشل آخر بناء — افتح المستودع ثم Actions', url };
+      if (w) t = w.status !== 'completed' ? 'يُبنى الآن…' : w.conclusion === 'success' ? 'جاهز' : 'فشل آخر بناء — افتح المستودع ثم Actions';
     } catch (e) { }
-    return { t: 'مفعّل', url };
+    return { k: 'on', t, url };
   }
-  return { t: p.status === 'built' ? 'جاهز' : p.status === 'building' ? 'يُبنى الآن…' : p.status === 'errored' ? 'فشل البناء' : 'مفعّل', url };
+  try {
+    const r = await ghApi(c, 'GET', '/repos/' + c.repo);
+    if (r.private) { const u = await ghApi(c, 'GET', '/user'); if (u.plan && /free/i.test(u.plan.name || '') && r.owner && r.owner.type === 'User') return { k: 'na', url: '' }; }
+  } catch (e) { }
+  return { k: err && err.status === 404 ? 'off' : 'unknown', url: '' };
 }
-async function ghFillStatus(c) {
-  const s = await ghPagesState(c), el = $('ghPgSt');
+async function ghFillSite(c) {
+  const s = await ghSiteState(c), el = $('ghSite');
   if (!el || GH_ST.view !== 'main') return;
-  GH_ST.site = s.url; el.textContent = 'حالة الموقع: ' + s.t;
+  GH_ST.site = s.url || '';
+  if (s.k === 'on') el.innerHTML = uiNote('الموقع يعمل ✓ — ' + esc(s.t)) + (s.url ? '<div class="slabel" dir="ltr">' + esc(s.url) + '</div>' : '') + '<button type="button" class="btn primary" data-act="app">فتح التطبيق</button>';
+  else if (s.k === 'na') el.innerHTML = uiNote('الموقع غير متاح: المستودع الخاص في الحساب المجاني لا يدعم GitHub Pages. اجعل المستودع عاماً لتحويله إلى تطبيق.');
+  else el.innerHTML = '<button type="button" class="btn" data-act="jkgo">تحويل المشروع إلى تطبيق (PWA)</button>' +
+    uiNote(s.k === 'unknown' ? 'تعذّر معرفة حالة الموقع، ويمكنك المحاولة رغم ذلك. ' : '') + uiNote('يصير مشروعك تطبيقاً قابلاً للتثبيت على الهاتف عبر GitHub Pages، ويُدفع إلى المستودع أعلاه.');
 }
 /* نافذة بعد الدفع/التفعيل: زر فتح التطبيق + تلميح التثبيت */
 function ghAppDialog(c, url, n) {
@@ -200,26 +243,23 @@ async function githubDialog(view) {
   }
 
   if (view === 'main') {
-    ui.show(ghHead(raw.login) +
-      uiRow('repos', 'folder-open', esc(c.repo), esc(c.branch) + (c.dir ? ' · ' + esc(c.dir) : '') + ' — اضغط للتغيير') +
-      '<div class="slabel">نوع النشر</div><div class="srow">' + ghChip('jkoff', !c.jk, 'ملفات عادية') + ghChip('jkon', c.jk, 'Jekyll + PWA') + '</div>' +
-      (c.jk ? uiNote('عند الدفع: يُضاف _config.yml وGemfile وworkflow وmanifest وsw.js وأيقونات (إن لم تكن موجودة)، ويُفعَّل Pages تلقائياً. يحتاج التوكن Workflows وPages بمستوى Read and write.') : '') +
+    const rn = String(c.repo).split('/')[1] || c.repo;
+    ui.show(ghHead(raw.login) + ghTargetCard(c) +
+      uiRow('repos', 'folder-open', 'تغيير المستودع', 'اختر مستودعاً آخر لهذا المشروع') +
       '<div class="slabel">رسالة الـ commit</div><input type="text" id="ghMsg" value="' + esc(GH_ST.msg || ghDefMsg()) + '">' +
-      '<button type="button" class="btn primary" data-act="push">دفع المشروع إلى GitHub</button>' +
-      '<div class="srow"><button type="button" class="btn" data-act="jkgo">تفعيل Jekyll + PWA</button><button type="button" class="btn" data-act="app">فتح التطبيق</button></div>' +
-      '<div class="slabel" id="ghPgSt">حالة الموقع: جارٍ الفحص…</div>' +
+      '<button type="button" class="btn primary" data-act="push">دفع المشروع إلى <bdi dir="ltr">' + esc(rn) + '</bdi></button>' +
+      '<div class="slabel">الموقع</div><div id="ghSite"><div class="slabel">جارٍ فحص حالة الموقع…</div></div>' +
       '<div class="srow"><button type="button" class="btn" data-act="web">فتح المستودع</button><button type="button" class="btn" data-act="new">مستودع جديد</button><button type="button" class="btn" data-act="set">الإعدادات</button></div>' +
       '<button type="button" class="btn" data-ui="cancel">إغلاق</button>', act => {
-        if (act === 'jkon' || act === 'jkoff') { const mm = $('ghMsg'); if (mm) GH_ST.msg = mm.value; ghSaveCfg({ token: c.token, repo: c.repo, branch: c.branch, dir: c.dir, jk: act === 'jkon' }); return go('main'); }
         if (act === 'push') { GH_ST.msg = ''; const m = $('ghMsg').value; ui.close(null); return void setTimeout(() => githubPush(m), 120); }
         if (act === 'repos') return go('pick');
         if (act === 'new') return go('create');
         if (act === 'set') return go('set');
         if (act === 'web') return doOpen('https://github.com/' + c.repo);
         if (act === 'app') return doOpen(GH_ST.site || jkSiteUrl(c.repo));
-        if (act === 'jkgo') { ghSaveCfg({ token: c.token, repo: c.repo, branch: c.branch, dir: c.dir, jk: true }); ui.close(null); return void setTimeout(() => githubPush('تفعيل Jekyll + PWA من CodePatcher'), 120); }
+        if (act === 'jkgo') { ghSaveCfg({ token: c.token, repo: c.repo, branch: c.branch, dir: c.dir, jk: true }); ui.close(null); return void setTimeout(() => githubPush(undefined, 'تحويل المشروع إلى تطبيق (PWA) من CodePatcher'), 120); }
       });
-    GH_ST.site = ''; ghFillStatus(c);
+    GH_ST.site = ''; ghFillSite(c);
     return;
   }
 
@@ -253,7 +293,7 @@ async function githubDialog(view) {
       '<div class="slabel">الوصف (اختياري)</div><input type="text" id="ghNDesc" value="' + esc(st.desc) + '">' +
       '<div class="slabel">الظهور</div><div class="srow">' + ghChip('pub', !st.priv, 'عام') + ghChip('prv', st.priv, 'خاص') + '</div>' +
       '<div class="slabel">موقع المشروع (GitHub Pages)</div><div class="srow">' + ghChip('pgon', st.pages && !st.priv, 'تفعيل') + ghChip('pgoff', !st.pages || st.priv, 'بدون') + '</div>' +
-      (st.pages && !st.priv ? '<div class="slabel">نوع الموقع</div><div class="srow">' + ghChip('jkon', st.jk, 'Jekyll + PWA') + ghChip('jkoff', !st.jk, 'ملفات عادية') + '</div>' : '') +
+      (st.pages && !st.priv ? '<div class="slabel">نوع الموقع</div><div class="srow">' + ghChip('jkon', st.jk, 'تطبيق PWA (Jekyll)') + ghChip('jkoff', !st.jk, 'ملفات عادية') + '</div>' : '') +
       uiNote('Pages يحتاج مستودعاً عاماً في الحساب المجاني. يُنشأ المستودع ومعه ملف README ثم تدفع مشروعك إليه.') +
       '<div class="srow"><button type="button" class="btn" data-act="back">رجوع</button><button type="button" class="btn primary" data-act="mk">إنشاء</button></div>', async act => {
         const a = $('ghNName'), b = $('ghNDesc'); if (a) st.name = a.value; if (b) st.desc = b.value;
@@ -279,12 +319,16 @@ async function githubDialog(view) {
   }
 
   if (view === 'set') {
+    let jk = c.jk;
     ui.show(ghHead(raw.login) +
+      '<div class="slabel">نوع النشر</div><div class="srow" id="ghJkRow">' + ghChip('jkoff', !jk, 'ملفات عادية') + ghChip('jkon', jk, 'تطبيق PWA (Jekyll)') + '</div>' +
+      uiNote('عند اختيار «تطبيق PWA» يُضاف عند الدفع: _config.yml وGemfile وworkflow وmanifest وsw.js وأيقونات (إن لم تكن موجودة)، ويُفعَّل Pages. يحتاج التوكن Workflows وPages بمستوى Read and write.') +
       '<div class="slabel">الفرع</div><input type="text" id="ghBr"' + GH_ATTR + ' value="' + esc(c.branch) + '">' +
       '<div class="slabel">مجلد داخل المستودع (اتركه فارغاً للجذر)</div><input type="text" id="ghDir"' + GH_ATTR + ' value="' + esc(c.dir) + '">' +
       '<div class="slabel">تغيير التوكن (اتركه فارغاً للإبقاء على الحالي)</div><input type="password" id="ghTokIn"' + GH_ATTR + ' placeholder="github_pat_…">' +
       '<button type="button" class="btn primary" data-act="save">حفظ</button>' +
-      '<div class="srow"><button type="button" class="btn" data-act="back">رجوع</button><button type="button" class="btn dng" data-act="off">فصل الحساب</button></div>', async act => {
+      '<div class="srow"><button type="button" class="btn" data-act="back">رجوع</button><button type="button" class="btn dng" data-act="off">فصل الحساب</button></div>', async (act, el) => {
+        if (act === 'jkon' || act === 'jkoff') { jk = act === 'jkon'; const row = $('ghJkRow'); if (row) row.querySelectorAll('[data-act]').forEach(b => b.classList.toggle('primary', (b.dataset.act === 'jkon') === jk)); return; }
         if (act === 'back') return go(ghRepoOk(c.repo) ? 'main' : 'connect');
         if (act === 'off') { ghSetToken('', ''); GH_ST.repos = null; toast('تم فصل الحساب', 'ok'); return go('connect'); }
         if (act !== 'save') return;
@@ -295,7 +339,7 @@ async function githubDialog(view) {
           ghSetToken(t, v.login); GH_ST.repos = null;
         }
         const k = ghCfg();
-        ghSaveCfg({ token: ghRaw().token, repo: k.repo, branch: $('ghBr').value.trim() || 'main', dir: $('ghDir').value.trim() });
+        ghSaveCfg({ token: ghRaw().token, repo: k.repo, branch: $('ghBr').value.trim() || 'main', dir: $('ghDir').value.trim(), jk });
         toast('حُفظت الإعدادات', 'ok'); go(ghRepoOk(k.repo) ? 'main' : 'pick');
       });
   }
