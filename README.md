@@ -15,6 +15,7 @@
 - `js/16b-text-bundle.js` — تصدير المشروع كنص واحد (مع خريطة وتقسيم لأجزاء) واستيراده.
 - `Tools/check.js` — `node Tools/check.js` يفحص الصياغة والتسجيل والأسماء المكررة.
 - `js/16b-text-bundle.js` — تصدير المشروع كنص للذكاء بأجزاء محدودة بالأحرف (الافتراضي 30,000؛ الملف الأكبر يُقسَّم بترويسة تكملة).
+- `js/34-jekyll-pwa.js` — وضع «Jekyll + PWA» عند الدفع إلى GitHub: يضيف للدفعة فقط `_config.yml` و`Gemfile` وworkflow وmanifest وsw.js وأيقونات PNG (إن لم تكن موجودة في المشروع أو المستودع)، ويحقن في index.html ما ينقصه بين علامتي `CP-PWA`، ويفعّل Pages بمصدر GitHub Actions.
 - `js/31-outline.js` — مخطط الملف وشريط النطاق في المحرر (js/css/md/html).
 
 ## قواعد عند التعديل

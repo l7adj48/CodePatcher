@@ -76,10 +76,7 @@ async function githubPush(msg) {
     const all = ghCollect(c), changed = [];
     const jk = c.jk ? await jkApply(c, all, new Set(have.keys()), say) : null;
     for (const [path, u8] of all) { const sha = tr.truncated ? '' : await ghBlobSha(u8); if (!sha || have.get(path) !== sha) changed.push([path, u8]); }
-    if (!changed.length) {
-      if (jk && jk.url && !jk.skip && !jk.pagesErr) return ghAppDialog(c, jk.url, 0);
-      return toast('لا تغييرات: المستودع مطابق للمشروع', 'ok');
-    }
+    if (!changed.length) return toast('لا تغييرات: المستودع مطابق للمشروع', 'ok');
     const entries = []; let done = 0, next = 0;
     const worker = async () => {
       while (next < changed.length) {
@@ -97,8 +94,7 @@ async function githubPush(msg) {
     const jkNote = !jk ? '' : jk.skip ? ' — لم يُحوَّل: لا index.html في جذر المشروع' : jk.pagesErr ? ' — تعذّر تفعيل Pages: ' + jk.pagesErr : ' — الموقع يُبنى الآن (دقيقة أو دقيقتان)';
     if (jk && jk.added && jk.added.length) log('ok', 'GitHub: أُضيفت ملفات التحويل: ' + jk.added.join('، '));
     const site = jk && jk.url && !jk.skip && !jk.pagesErr;
-    if (site) return ghAppDialog(c, jk.url, changed.length);
-    toast('تم الدفع: ' + changed.length + ' ملف في commit واحد' + jkNote, 'ok', { label: 'فتح الـ commit', fn: () => window.open('https://github.com/' + c.repo + '/commit/' + nc.sha, '_blank', 'noopener') });
+    toast('تم الدفع: ' + changed.length + ' ملف في commit واحد' + jkNote, 'ok', site ? { label: 'فتح الموقع', fn: () => window.open(jk.url, '_blank', 'noopener') } : { label: 'فتح الـ commit', fn: () => window.open('https://github.com/' + c.repo + '/commit/' + nc.sha, '_blank', 'noopener') });
   } catch (e) {
     const hint = c.jk && e && (e.status === 403 || e.status === 404 || e.status === 422) && !/workflow/i.test(String(e.message)) ? ' — وضع Jekyll يحتاج أيضاً Workflows وPages (Read and write)' : '';
     log('err', 'GitHub: ' + ghErrText(e) + hint); toast('فشل الدفع: ' + ghErrText(e) + hint, 'err');
@@ -137,39 +133,7 @@ function ghRepoRows(list, q) {
     .map(x => uiRow('pick', 'github', esc(x[0].full_name), esc(x[0].default_branch) + (x[0].private ? ' · خاص' : ' · عام'), 'data-i="' + x[1] + '"')).join('');
   return rows || uiEmpty('لا نتائج');
 }
-/* حالة موقع Pages ورابطه (للزر وسطر الحالة). لا يرمي أخطاء */
-async function ghPagesState(c) {
-  let p;
-  try { p = await ghApi(c, 'GET', '/repos/' + c.repo + '/pages'); }
-  catch (e) { return { t: e && e.status === 404 ? 'غير مفعّل بعد — اضغط «تفعيل Jekyll + PWA»' : 'غير معروف (تحقق من صلاحية Pages للتوكن)', url: '' }; }
-  const url = p.html_url || '';
-  if (p.build_type === 'workflow') {
-    try {
-      const r = await ghApi(c, 'GET', '/repos/' + c.repo + '/actions/runs?per_page=1'), w = r.workflow_runs && r.workflow_runs[0];
-      if (w) return { t: w.status !== 'completed' ? 'يُبنى الآن…' : w.conclusion === 'success' ? 'جاهز' : 'فشل آخر بناء — افتح المستودع ثم Actions', url };
-    } catch (e) { }
-    return { t: 'مفعّل', url };
-  }
-  return { t: p.status === 'built' ? 'جاهز' : p.status === 'building' ? 'يُبنى الآن…' : p.status === 'errored' ? 'فشل البناء' : 'مفعّل', url };
-}
-async function ghFillStatus(c) {
-  const s = await ghPagesState(c), el = $('ghPgSt');
-  if (!el || GH_ST.view !== 'main') return;
-  GH_ST.site = s.url; el.textContent = 'حالة الموقع: ' + s.t;
-}
-/* نافذة بعد الدفع/التفعيل: زر فتح التطبيق + تلميح التثبيت */
-function ghAppDialog(c, url, n) {
-  GH_ST.view = 'done';
-  ui.show(ghHead(c.repo) +
-    '<h3>' + (n ? 'تم الدفع: ' + n + ' ملف في commit واحد' : 'الموقع مفعّل والمستودع مطابق للمشروع') + '</h3>' +
-    uiNote('الموقع يُبنى الآن وقد يحتاج دقيقة أو دقيقتين. بعدها افتح التطبيق، ثم في Chrome اختر ⋮ ثم «تثبيت التطبيق».') +
-    '<button type="button" class="btn primary" data-act="app">فتح التطبيق</button>' +
-    '<div class="srow"><button type="button" class="btn" data-act="web">فتح المستودع</button><button type="button" class="btn" data-ui="cancel">إغلاق</button></div>', act => {
-      if (act === 'app') window.open(url, '_blank', 'noopener');
-      if (act === 'web') window.open('https://github.com/' + c.repo, '_blank', 'noopener');
-    });
-}
-const GH_ST = { view: '', repos: null, create: null, msg: '', site: '' };
+const GH_ST = { view: '', repos: null, create: null, msg: '' };
 async function githubDialog(view) {
   const c = ghCfg(), raw = ghRaw();
   if (!view) { GH_ST.create = null; view = !c.token ? 'connect' : ghRepoOk(c.repo) ? 'main' : 'pick'; }
@@ -206,8 +170,6 @@ async function githubDialog(view) {
       (c.jk ? uiNote('عند الدفع: يُضاف _config.yml وGemfile وworkflow وmanifest وsw.js وأيقونات (إن لم تكن موجودة)، ويُفعَّل Pages تلقائياً. يحتاج التوكن Workflows وPages بمستوى Read and write.') : '') +
       '<div class="slabel">رسالة الـ commit</div><input type="text" id="ghMsg" value="' + esc(GH_ST.msg || ghDefMsg()) + '">' +
       '<button type="button" class="btn primary" data-act="push">دفع المشروع إلى GitHub</button>' +
-      '<div class="srow"><button type="button" class="btn" data-act="jkgo">تفعيل Jekyll + PWA</button><button type="button" class="btn" data-act="app">فتح التطبيق</button></div>' +
-      '<div class="slabel" id="ghPgSt">حالة الموقع: جارٍ الفحص…</div>' +
       '<div class="srow"><button type="button" class="btn" data-act="web">فتح المستودع</button><button type="button" class="btn" data-act="new">مستودع جديد</button><button type="button" class="btn" data-act="set">الإعدادات</button></div>' +
       '<button type="button" class="btn" data-ui="cancel">إغلاق</button>', act => {
         if (act === 'jkon' || act === 'jkoff') { const mm = $('ghMsg'); if (mm) GH_ST.msg = mm.value; ghSaveCfg({ token: c.token, repo: c.repo, branch: c.branch, dir: c.dir, jk: act === 'jkon' }); return go('main'); }
@@ -216,10 +178,7 @@ async function githubDialog(view) {
         if (act === 'new') return go('create');
         if (act === 'set') return go('set');
         if (act === 'web') return doOpen('https://github.com/' + c.repo);
-        if (act === 'app') return doOpen(GH_ST.site || jkSiteUrl(c.repo));
-        if (act === 'jkgo') { ghSaveCfg({ token: c.token, repo: c.repo, branch: c.branch, dir: c.dir, jk: true }); ui.close(null); return void setTimeout(() => githubPush('تفعيل Jekyll + PWA من CodePatcher'), 120); }
       });
-    GH_ST.site = ''; ghFillStatus(c);
     return;
   }
 
