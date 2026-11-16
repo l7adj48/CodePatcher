@@ -515,9 +515,14 @@ body[data-theme="contrast"] {
 .pdiff .dl.del { background: var(--diff-del-bg); color: var(--diff-del-fg); }
 .pdiff .dl.ctx { color: var(--text-muted); }
 
-/* أيقونات الملفات أحادية اللون؛ نوع الملف يظهر في شارة الامتداد بدل الألوان */
-.fi-js, .fi-html, .fi-css, .fi-json, .fi-md, .fi-img, .fi-txt, .fi-d { color: var(--text-secondary); background: var(--surface-control-flat); }
-.fi-d { color: var(--text-primary); }
+.fi-js { color: var(--fi-js); background: var(--fi-js-bg); }
+.fi-html { color: var(--fi-html); background: var(--fi-html-bg); }
+.fi-css { color: var(--fi-css); background: var(--fi-css-bg); }
+.fi-json { color: var(--fi-json); background: var(--fi-json-bg); }
+.fi-md { color: var(--fi-md); background: var(--fi-md-bg); }
+.fi-img { color: var(--fi-img); background: var(--fi-img-bg); }
+.fi-txt { color: var(--fi-txt); background: var(--fi-txt-bg); }
+.fi-d { color: var(--fi-dir); background: var(--fi-dir-bg); }
 
 
 /* ── معاينات الإعدادات: ألوان بطاقات الثيمات ونقاط التمييز (الألوان تُعدَّل هنا فقط) ── */
