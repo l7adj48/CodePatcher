@@ -157,19 +157,16 @@ async function githubDialog(view) {
   }
 
   if (view === 'main') {
-    const pages = 'https://' + c.repo.split('/')[0].toLowerCase() + '.github.io/' + c.repo.split('/')[1] + '/';
     ui.show(ghHead(raw.login) +
       uiRow('repos', 'folder-open', esc(c.repo), esc(c.branch) + (c.dir ? ' · ' + esc(c.dir) : '') + ' — اضغط للتغيير') +
       '<div class="slabel">رسالة الـ commit</div><input type="text" id="ghMsg" value="' + esc(ghDefMsg()) + '">' +
       '<button type="button" class="btn primary" data-act="push">دفع المشروع إلى GitHub</button>' +
-      '<div class="srow"><button type="button" class="btn" data-act="site">فتح الموقع</button><button type="button" class="btn" data-act="web">فتح المستودع</button></div>' +
-      '<div class="srow"><button type="button" class="btn" data-act="new">مستودع جديد</button><button type="button" class="btn" data-act="set">الإعدادات</button></div>' +
+      '<div class="srow"><button type="button" class="btn" data-act="web">فتح المستودع</button><button type="button" class="btn" data-act="new">مستودع جديد</button><button type="button" class="btn" data-act="set">الإعدادات</button></div>' +
       '<button type="button" class="btn" data-ui="cancel">إغلاق</button>', act => {
         if (act === 'push') { const m = $('ghMsg').value; ui.close(null); return void setTimeout(() => githubPush(m), 120); }
         if (act === 'repos') return go('pick');
         if (act === 'new') return go('create');
         if (act === 'set') return go('set');
-        if (act === 'site') return doOpen(pages);
         if (act === 'web') return doOpen('https://github.com/' + c.repo);
       });
     return;
