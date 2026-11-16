@@ -43,7 +43,7 @@ function copyToClipboard(text) {
 
 /* ===== نوافذ التطبيق ===== */
 function uiRow(act, icName, title, desc, dataAttr) {
-  return '<div class="mi" data-act="' + act + '"' + (dataAttr ? ' ' + dataAttr : '') + '><svg class="ic" aria-hidden="true"><use href="#i-' + icName + '"/></svg><span class="mi-body"><span class="mi-title">' + title + '</span>' + (desc ? '<span class="mi-desc">' + desc + '</span>' : '') + '</span></div>';
+  return '<div class="mi" data-act="' + act + '"' + (dataAttr ? ' ' + dataAttr : '') + '><svg class="ic' + (icName === 'github' ? ' brand' : '') + '" aria-hidden="true"><use href="#i-' + icName + '"/></svg><span class="mi-body"><span class="mi-title">' + title + '</span>' + (desc ? '<span class="mi-desc">' + desc + '</span>' : '') + '</span></div>';
 }
 function uiScroll(html, size) { return '<div class="scroll-box ' + (size || 'md') + '">' + html + '</div>'; }
 function uiNote(html, cls) { return '<div class="slabel' + (cls ? ' ' + cls : '') + '">' + html + '</div>'; }

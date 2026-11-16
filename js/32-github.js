@@ -30,7 +30,7 @@ async function ghBlobSha(u8) {
 async function ghApi(c, method, path, body) {
   const r = await fetch('https://api.github.com' + path, {
     method, cache: 'no-store',
-    headers: Object.assign({ 'Authorization': 'Bearer ' + c.token, 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }, body ? { 'Content-Type': 'application/json' } : {}),
+    headers: Object.assign(c.token ? { 'Authorization': 'Bearer ' + c.token } : {}, { 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }, body ? { 'Content-Type': 'application/json' } : {}),
     body: body ? JSON.stringify(body) : undefined
   });
   let j = null; try { j = await r.json(); } catch (e) { }
@@ -118,7 +118,7 @@ function ghCreateErr(e) {
 }
 /* ===== نافذة GitHub: لوحة واحدة بعدة عروض (ربط / رئيسي / اختيار مستودع / إنشاء / إعدادات) ===== */
 const GH_ATTR = ' dir="ltr" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"';
-function ghHead(sub) { return '<h3><svg class="ic" aria-hidden="true"><use href="#i-github"/></svg> GitHub ' + (sub ? uiSub(esc(sub)) : '') + '</h3>'; }
+function ghHead(sub) { return '<h3><svg class="ic brand" aria-hidden="true"><use href="#i-github"/></svg> GitHub ' + (sub ? uiSub(esc(sub)) : '') + '</h3>'; }
 function ghChip(act, on, t) { return '<button type="button" class="btn' + (on ? ' primary' : '') + '" data-act="' + act + '">' + t + '</button>'; }
 function ghRepoRows(list, q) {
   q = (q || '').trim().toLowerCase();
@@ -246,4 +246,134 @@ async function githubDialog(view) {
         toast('حُفظت الإعدادات', 'ok'); go(ghRepoOk(k.repo) ? 'main' : 'pick');
       });
   }
+}
+
+/* ===== استيراد مشروع من GitHub (مستودع عام بلا توكن، أو خاص مع الربط) ===== */
+const GH_MAX_BLOB = 5 * 1024 * 1024;
+function ghParseRepo(v) {
+  const s = String(v || '').trim().replace(/^git@github\.com:/i, '').replace(/^https?:\/\/(www\.)?github\.com\//i, '').replace(/[?#].*$/, '').replace(/\.git$/i, '').replace(/\/+$/, '');
+  const m = s.match(/^([\w.-]+)\/([\w.-]+?)(?:\/tree\/(.+))?$/);
+  return m ? { repo: m[1] + '/' + m[2], branch: m[3] || '' } : null;
+}
+function ghB64ToBytes(b64) {
+  const s = atob(String(b64 || '').replace(/\s/g, '')), u = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i);
+  return u;
+}
+/* mode: 'replace' (مشروع جديد من المستودع) | 'merge' (إضافة/تحديث داخل المشروع الحالي) */
+async function ghImportRun(repo, branch, mode) {
+  const tok = ghRaw().token || '', c = { token: tok }, R = '/repos/' + repo, say = t => toast(t, '');
+  const cc = cur(); if (cc) cc.content = editor.value;
+  try {
+    say('جارٍ قراءة المستودع…');
+    if (!branch) { const r = await ghApi(c, 'GET', R); branch = r.default_branch || 'main'; }
+    const brp = encodeURIComponent(branch).replace(/%2F/g, '/');
+    const tr = await ghApi(c, 'GET', R + '/git/trees/' + brp + '?recursive=1');
+    let list = (tr.tree || []).filter(t => t.type === 'blob' && !SKIP_PATH.test(t.path));
+    importSkips = []; let skipped = 0;
+    const big = list.filter(t => t.size > GH_MAX_BLOB);
+    big.forEach(t => importSkips.push({ n: t.path, w: 'أكبر من 5MB' })); skipped += big.length;
+    list = list.filter(t => !(t.size > GH_MAX_BLOB));
+    if (list.length > MAX_COUNT) { importSkips.push({ n: '(' + (list.length - MAX_COUNT) + ' ملف)', w: 'تجاوز حد ' + MAX_COUNT + ' ملف' }); skipped += list.length - MAX_COUNT; list = list.slice(0, MAX_COUNT); }
+    if (!list.length) return toast('المستودع فارغ', 'err');
+    const items = [], bins = []; let done = 0, next = 0;
+    const worker = async () => {
+      while (next < list.length) {
+        const t = list[next++];
+        try {
+          const b = await ghApi(c, 'GET', R + '/git/blobs/' + t.sha), u8 = ghB64ToBytes(b.content), txt = bytesToText(u8);
+          if (txt == null) bins.push({ name: t.path, u8 });
+          else items.push({ name: t.path, content: txt, eol: bytesToText.meta.eol, enc: bytesToText.meta.enc });
+        } catch (e) {
+          if (e && (e.status === 401 || e.status === 403 || e.status === 429)) throw e;
+          skipped++; importSkips.push({ n: t.path, w: 'تعذّر التنزيل' });
+        }
+        say('جارٍ التنزيل ' + (++done) + '/' + list.length);
+      }
+    };
+    await Promise.all([worker(), worker(), worker(), worker()]);
+    if (!items.length) return toast(bins.length ? 'لا ملفات نصية في المستودع (الصور فقط)' : 'لا ملفات قابلة للاستيراد', 'err');
+    const rep = mode === 'replace', wipe = rep ? new Map(BIN) : null;
+    const n = await addItems(items, wipe);
+    if (!n) return;
+    bins.forEach(b => BIN.set(b.name, b.u8)); binSave();
+    if (rep) { treeCwd = ''; ghSaveCfg({ token: tok, repo, branch, dir: '' }); render(); }
+    log('ok', 'GitHub: استُورد ' + n + ' ملف نصي + ' + bins.length + ' ثنائي من ' + repo + '@' + branch);
+    toast('استُورد ' + n + ' ملف من ' + repo + (bins.length ? ' + ' + bins.length + ' ثنائي' : '') + (skipped ? ' — تخطّي ' + skipped : ''), 'ok');
+    if (importSkips.length) setTimeout(showImportReport, 400);
+  } catch (e) {
+    const s = e && e.status;
+    const msg = s === 404 ? 'المستودع أو الفرع غير موجود (إن كان خاصاً فاربط حسابك أولاً)' : s === 403 || s === 429 ? 'تجاوزت حدّ الطلبات — اربط حسابك لرفع الحد ثم أعد المحاولة' : ghErrText(e);
+    log('err', 'GitHub: ' + msg); toast('فشل الاستيراد: ' + msg, 'err');
+  }
+}
+/* سحب آخر تحديثات المستودع المرتبط إلى المشروع الحالي (يسأل قبل استبدال أي ملف) */
+function ghPull() { const c = ghCfg(); if (!ghRepoOk(c.repo)) return githubDialog(); return ghImportRun(c.repo, c.branch, 'merge'); }
+
+const GH_IMP = { mode: 'replace', repos: null, tab: 'url', repo: '', branch: '', sel: null };
+async function ghImportDialog(prefill) {
+  if (prefill !== undefined) { GH_IMP.tab = 'url'; GH_IMP.repo = prefill; GH_IMP.branch = ''; }
+  const raw = ghRaw(), tok = !!raw.token, tab = GH_IMP.tab === 'mine' ? 'mine' : 'url';
+  const chip = (a, on, t) => '<button type="button" class="btn' + (on ? ' primary' : '') + '" data-act="' + a + '">' + t + '</button>';
+  const rows = (list, q) => {
+    q = (q || '').trim().toLowerCase();
+    const h = list.map((r, i) => [r, i]).filter(x => !q || x[0].full_name.toLowerCase().includes(q))
+      .map(x => uiRow('ipick', 'github', esc(x[0].full_name), esc(x[0].default_branch) + (x[0].private ? ' · خاص' : ' · عام'), 'data-i="' + x[1] + '"' + (GH_IMP.sel === x[0].full_name ? ' data-on="1"' : ''))).join('');
+    return h || uiEmpty('لا نتائج');
+  };
+  const sv = () => { const a = $('giRepo'), b = $('giBr'); if (a) GH_IMP.repo = a.value; if (b) GH_IMP.branch = b.value; };
+  let body;
+  if (tab === 'url') body =
+    '<div class="slabel">رابط المستودع أو owner/name</div><input type="text" id="giRepo"' + GH_ATTR + ' placeholder="https://github.com/owner/repo" value="' + esc(GH_IMP.repo) + '">' +
+    '<div class="slabel">الفرع (اتركه فارغاً للافتراضي)</div><input type="text" id="giBr"' + GH_ATTR + ' placeholder="main" value="' + esc(GH_IMP.branch) + '">' +
+    uiNote('المستودعات العامة تعمل بدون ربط الحساب.');
+  else if (!tok) body = uiNote('اربط حسابك لتظهر مستودعاتك العامة والخاصة هنا.') + '<button type="button" class="btn primary" data-act="link">ربط الحساب</button>';
+  else body =
+    '<input type="text" id="giQ"' + GH_ATTR + ' placeholder="ابحث في مستودعاتك…">' +
+    uiScroll('<div id="giList">' + uiEmpty('جارٍ جلب مستودعاتك…') + '</div>', 'md') +
+    '<div class="slabel" id="giSel" dir="auto">' + (GH_IMP.sel ? 'المحدد: ' + esc(GH_IMP.sel) : 'اختر مستودعاً من القائمة') + '</div>' +
+    '<div class="slabel">الفرع (اتركه فارغاً للافتراضي)</div><input type="text" id="giBr"' + GH_ATTR + ' placeholder="main" value="' + esc(GH_IMP.branch) + '">';
+  const canGo = tab === 'url' || tok;
+  ui.show('<h3><svg class="ic brand" aria-hidden="true"><use href="#i-github"/></svg> استيراد من GitHub ' + (raw.login ? uiSub(esc(raw.login)) : '') + '</h3>' +
+    '<div class="srow gi-tabs">' + chip('turl', tab === 'url', 'من رابط') + chip('tmine', tab === 'mine', 'من مستودعاتي') + '</div>' + body +
+    (canGo ? '<div class="slabel">طريقة الاستيراد</div><div class="srow" id="giMode">' + chip('mrep', GH_IMP.mode === 'replace', 'مشروع جديد') + chip('mmrg', GH_IMP.mode === 'merge', 'إضافة للحالي') + '</div>' : '') +
+    '<div class="srow"><button type="button" class="btn" data-ui="cancel">إلغاء</button>' + (canGo ? '<button type="button" class="btn primary" data-act="go">استيراد</button>' : '') + '</div>', (act, el) => {
+      if (act === 'turl' || act === 'tmine') { sv(); GH_IMP.tab = act === 'turl' ? 'url' : 'mine'; return ghImportDialog(); }
+      if (act === 'link') { ui.close(null); return void setTimeout(() => githubDialog('connect'), 120); }
+      if (act === 'mrep' || act === 'mmrg') {
+        GH_IMP.mode = act === 'mrep' ? 'replace' : 'merge';
+        const g = $('giMode'); if (g) g.querySelectorAll('.btn').forEach(b => b.classList.toggle('primary', b.dataset.act === act));
+        return;
+      }
+      if (act === 'ipick') {
+        const r = (GH_IMP.repos || [])[+el.dataset.i]; if (!r) return;
+        GH_IMP.sel = r.full_name; GH_IMP.defBr = r.default_branch || 'main';
+        document.querySelectorAll('#giList .mi').forEach(x => x.removeAttribute('data-on')); el.setAttribute('data-on', '1');
+        const t = $('giSel'); if (t) t.textContent = 'المحدد: ' + r.full_name;
+        const b = $('giBr'); if (b) b.placeholder = GH_IMP.defBr;
+        return;
+      }
+      if (act !== 'go') return;
+      sv();
+      let p;
+      if (tab === 'url') { p = ghParseRepo(GH_IMP.repo); if (!p) return toast('الصق رابط المستودع أو اكتب owner/name', 'err'); }
+      else { if (!GH_IMP.sel) return toast('اختر مستودعاً من القائمة', 'err'); p = { repo: GH_IMP.sel, branch: '' }; }
+      const br = (GH_IMP.branch || '').trim() || p.branch, mode = GH_IMP.mode;
+      ui.close(null);
+      setTimeout(async () => {
+        if (mode === 'replace' && !(await ui.confirm('سيُستبدل المشروع الحالي (' + files.length + ' ملف) بمحتوى ' + p.repo + '. تُحفظ نقطة استرداد للملفات النصية. متابعة؟', 'استيراد'))) return;
+        ghImportRun(p.repo, br, mode);
+      }, 120);
+    });
+  if (tab !== 'mine' || !tok) return;
+  try {
+    if (!GH_IMP.repos) {
+      let out = [];
+      for (let p = 1; p <= 2; p++) { const j = await ghApi({ token: raw.token }, 'GET', '/user/repos?per_page=100&sort=pushed&page=' + p); out = out.concat(j); if (j.length < 100) break; }
+      GH_IMP.repos = out;
+    }
+    const L = $('giList'); if (!L) return;
+    L.innerHTML = rows(GH_IMP.repos, '');
+    $('giQ').addEventListener('input', e => { L.innerHTML = rows(GH_IMP.repos, e.target.value); });
+  } catch (e) { const L = $('giList'); if (L) L.innerHTML = uiEmpty('تعذّر جلب المستودعات — استخدم تبويب "من رابط"'); }
 }

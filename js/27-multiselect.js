@@ -57,16 +57,6 @@ function newProject() {
     else if (a === 'np_open') { ui.close(null); openFiles(true); }
   });
 }
-$('dtool').innerHTML = '<div class="dtool-label"><b>إجراءات سريعة</b><span>أدوات المشروع</span></div><div class="dtool-grid">' + [
-  ['file-plus', 'ملف جديد', 'newFile()', 'primary'],
-  ['folder-plus', 'مجلد جديد', 'newFolder()', ''],
-  ['import', 'استيراد', 'openFiles()', ''],
-  ['export', 'تصدير', 'exportDialog()', ''],
-  ['file-md', 'حزمة نصية', 'bundleMenu()', ''],
-  ['check-square', 'تحديد متعدد', 'toggleSel(true)', ''],
-  ['plus', 'مشروع جديد', 'newProject()', '']
-].map(([i, t, a, c]) => '<button type="button" class="dtb ' + c + '" onclick="' + a + '">' + ic(i, 's') + '<span>' + t + '</span></button>').join('') + '</div>';
-
 async function boot() {
   document.querySelectorAll('button[title]:not([aria-label])').forEach(b => b.setAttribute('aria-label', b.title));
   applyFont();
