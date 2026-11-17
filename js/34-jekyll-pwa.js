@@ -1,8 +1,16 @@
 'use strict';
 /* تحويل المشروع عند الدفع إلى موقع Jekyll + PWA على GitHub Pages.
    الملفات المولَّدة تُضاف للدفعة فقط (لا تظهر في ملفات المشروع)، ولا تُكتب فوق ملف موجود في المشروع أو المستودع. */
-const JK_A = '<!--CP-PWA-->', JK_B = '<!--/CP-PWA-->';
-function jkStrip(t) { return String(t).indexOf(JK_A) < 0 ? t : String(t).replace(/<!--CP-PWA-->[\s\S]*?<!--\/CP-PWA-->\n?/g, ''); }
+const JK_A = '<' + '!--CP-PWA-->', JK_B = '<' + '!--/CP-PWA-->';
+function jkStrip(t) {
+  let s = String(t);
+  for (;;) {
+    const a = s.indexOf(JK_A); if (a < 0) return s;
+    const b = s.indexOf(JK_B, a); if (b < 0) return s;
+    let e = b + JK_B.length; if (s[e] === '\n') e++;
+    s = s.slice(0, a) + s.slice(e);
+  }
+}
 function jkSiteUrl(repo) {
   const p = String(repo).split('/'), o = (p[0] || '').toLowerCase(), r = p[1] || '';
   return 'https://' + o + '.github.io' + (r.toLowerCase() === o + '.github.io' ? '/' : '/' + r + '/');

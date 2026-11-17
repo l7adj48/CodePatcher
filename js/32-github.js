@@ -69,18 +69,64 @@ function ghMismatch(c) {
 /* بطاقة الوجهة: اسم المستودع كبير وواضح، ثم الحساب والفرع، ثم اسم المشروع الحالي للمقارنة */
 function ghTargetCard(c) {
   const o = String(c.repo).split('/'), pn = ghProjName();
-  return '<div class="slabel">سيُدفع المشروع إلى المستودع</div>' +
-    '<h3 dir="ltr">' + esc(o[1] || c.repo) + '</h3>' +
-    '<div class="slabel" dir="ltr">' + esc(o[0] || '') + ' · branch: ' + esc(c.branch) + (c.dir ? ' · /' + esc(c.dir) : '') + '</div>' +
+  return '<h3 dir="ltr">' + esc(o[1] || c.repo) + ' ' + uiSub(esc(o[0] || '') + ' · ' + esc(c.branch) + (c.dir ? ' · /' + esc(c.dir) : '')) + '</h3>' +
     (pn ? uiNote('المشروع الحالي: <bdi>' + esc(pn) + '</bdi>') : '') +
     (ghMismatch(c) ? uiNote('تنبيه: اسم المستودع لا يشبه اسم المشروع — تأكد أنه المستودع الصحيح') : '');
 }
-/* نافذة رسالة الـ commit مع إظهار المستودع الذي سيُدفع إليه. تعيد النص، أو null عند الإلغاء */
+/* نافذة رسالة الـ commit مع إظهار المستودع الذي سيُدفع إليه. تعيد النص، أو null عند الإلغاء، أو { change, msg } عند طلب تغيير المستودع */
+/* بطاقة واحدة مضغوطة: المستودع والفرع، وبالضغط عليها يُغيَّر المستودع */
+function ghPushCard(c) {
+  const o = String(c.repo).split('/'), pn = ghProjName();
+  return uiRow('repos', 'folder-open', '<bdi dir="ltr">' + esc(o[1] || c.repo) + '</bdi>', '<bdi dir="ltr">' + esc(o[0] || '') + ' · ' + esc(c.branch) + (c.dir ? ' · /' + esc(c.dir) : '') + '</bdi> — اضغط للتغيير') +
+    (pn ? uiNote('المشروع الحالي: <bdi>' + esc(pn) + '</bdi>') : '') +
+    (ghMismatch(c) ? uiNote('تنبيه: اسم المستودع لا يشبه اسم المشروع — تأكد أنه المستودع الصحيح') : '');
+}
+/* بطاقة المستودع: عنوان «المستودع» واسمه وحسابه وفرعه، وزر «تغيير» يفتح قائمة منسدلة بمستودعاتك */
+function ghRepoCard(c) {
+  const o = String(c.repo).split('/'), pn = ghProjName();
+  return '<div class="mi gh-repo" data-act="repos" role="button" aria-expanded="false"><svg class="ic brand" aria-hidden="true"><use href="#i-github"/></svg>' +
+    '<span class="mi-body"><span class="mi-desc">المستودع</span><span class="mi-title"><bdi dir="ltr">' + esc(o[1] || c.repo) + '</bdi></span>' +
+    '<span class="mi-desc"><bdi dir="ltr">' + esc(o[0] || '') + ' · ' + esc(c.branch) + (c.dir ? ' · /' + esc(c.dir) : '') + '</bdi></span></span>' +
+    '<span class="gh-chg">تغيير<svg class="ic" aria-hidden="true"><use href="#i-chev-down"/></svg></span></div>' +
+    '<div id="ghDrop" class="gh-drop" hidden></div>' +
+    (pn ? uiNote('المشروع الحالي: <bdi>' + esc(pn) + '</bdi>') : '') +
+    (ghMismatch(c) ? uiNote('تنبيه: اسم المستودع لا يشبه اسم المشروع — تأكد أنه المستودع الصحيح') : '');
+}
+/* سلوك القائمة المنسدلة داخل نافذة الدفع: جلب المستودعات مرة واحدة، بحث، واختيار يعيد فتح النافذة بالهدف الجديد */
+function ghPushAct(c) {
+  let list = null, busy = false;
+  const paint = q => { const el = $('ghDList'); if (el) el.innerHTML = ghRepoRows(list, q); };
+  return async (act, el) => {
+    if (act === 'more') return ui.close({ change: true, msg: $('uiIn').value });
+    if (act === 'pick' && list) {
+      const r = list[+el.dataset.i], cur0 = ghCfg();
+      ghSaveCfg({ token: c.token, repo: r.full_name, branch: r.default_branch || 'main', dir: r.full_name === cur0.repo ? cur0.dir : '' });
+      return ui.close({ picked: true, msg: $('uiIn').value });
+    }
+    if (act !== 'repos') return;
+    const d = $('ghDrop'), card = document.querySelector('.gh-repo'); if (!d || !card) return;
+    const open = d.hidden;
+    d.hidden = !open; card.classList.toggle('open', open); card.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (!open) return;
+    const i = $('uiIn'); if (i) i.blur();
+    if (!list) {
+      if (busy) return; busy = true;
+      d.innerHTML = uiEmpty('جارٍ جلب مستودعاتك…');
+      try { list = GH_ST.repos || (GH_ST.repos = await ghListRepos(c)); }
+      catch (e) { busy = false; if ($('ghDrop')) d.innerHTML = uiEmpty('تعذّر جلب المستودعات: ' + ghErrText(e)); return; }
+      busy = false; if (!$('ghDrop')) return;
+      d.innerHTML = '<input type="text" id="ghDQ"' + GH_ATTR + ' placeholder="ابحث في مستودعاتك…">' + uiScroll('<div id="ghDList"></div>', 'md') +
+        '<div class="slabel"><a data-act="more" class="gh-more">كل الخيارات: بحث موسّع أو مستودع جديد</a></div>';
+      $('ghDQ').addEventListener('input', e => paint(e.target.value)); paint('');
+    }
+    d.scrollIntoView({ block: 'nearest' });
+  };
+}
 function ghAskPush(c, def) {
   return new Promise(res => {
-    ui.show(ghHead('') + ghTargetCard(c) +
-      '<div class="slabel">رسالة الـ commit</div><input type="text" id="uiIn" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false">' +
-      '<div class="srow"><button type="button" class="btn" data-ui="cancel">إلغاء</button><button type="button" class="btn primary" data-ui="ok">دفع</button></div>');
+    ui.show('<div class="gh-tight">' + ghHead('') + ghRepoCard(c) +
+      '<input type="text" id="uiIn" placeholder="رسالة الـ commit" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false">' +
+      '<div class="srow"><button type="button" class="btn" data-ui="cancel">إلغاء</button><button type="button" class="btn primary" data-ui="ok">دفع</button></div></div>', ghPushAct(c));
     ui.kind = 'prompt'; ui.resolve = res;
     const i = $('uiIn'); i.value = def || '';
     i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); ui.close(i.value); } });
@@ -93,7 +139,10 @@ async function githubPush(msg, def) {
   const c = ghCfg();
   if (!c.token || !ghRepoOk(c.repo)) return githubDialog();
   if (!files.length) return toast('لا ملفات للدفع', 'err');
-  if (msg === undefined) { msg = await ghAskPush(c, def || ghDefMsg()); if (msg == null) return; }
+  if (msg === undefined) {
+    msg = await ghAskPush(c, def || ghDefMsg()); if (msg == null) return;
+    if (typeof msg === 'object') { if (msg.picked) return void setTimeout(() => githubPush(undefined, msg.msg), 120); GH_ST.pushMsg = msg.msg; return void setTimeout(() => githubDialog('pick', 'push'), 120); }
+  }
   msg = String(msg).trim() || ghDefMsg();
   const R = '/repos/' + c.repo, say = t => toast(t, ''), brp = encodeURIComponent(c.branch).replace(/%2F/g, '/');
   try {
@@ -192,13 +241,11 @@ async function ghSiteState(c) {
   return { k: err && err.status === 404 ? 'off' : 'unknown', url: '' };
 }
 async function ghFillSite(c) {
+  if (!c.jk || !$('ghSite')) return;
   const s = await ghSiteState(c), el = $('ghSite');
   if (!el || GH_ST.view !== 'main') return;
   GH_ST.site = s.url || '';
-  if (s.k === 'on') el.innerHTML = uiNote('الموقع يعمل ✓ — ' + esc(s.t)) + (s.url ? '<div class="slabel" dir="ltr">' + esc(s.url) + '</div>' : '') + '<button type="button" class="btn primary" data-act="app">فتح التطبيق</button>';
-  else if (s.k === 'na') el.innerHTML = uiNote('الموقع غير متاح: المستودع الخاص في الحساب المجاني لا يدعم GitHub Pages. اجعل المستودع عاماً لتحويله إلى تطبيق.');
-  else el.innerHTML = '<button type="button" class="btn" data-act="jkgo">تحويل المشروع إلى تطبيق (PWA)</button>' +
-    uiNote(s.k === 'unknown' ? 'تعذّر معرفة حالة الموقع، ويمكنك المحاولة رغم ذلك. ' : '') + uiNote('يصير مشروعك تطبيقاً قابلاً للتثبيت على الهاتف عبر GitHub Pages، ويُدفع إلى المستودع أعلاه.');
+  if (s.k === 'on') el.innerHTML = '<div class="slabel">الموقع</div>' + uiNote('الموقع يعمل ✓ — ' + esc(s.t)) + (s.url ? '<div class="slabel" dir="ltr">' + esc(s.url) + '</div>' : '');
 }
 /* نافذة بعد الدفع/التفعيل: زر فتح التطبيق + تلميح التثبيت */
 function ghAppDialog(c, url, n) {
@@ -212,12 +259,26 @@ function ghAppDialog(c, url, n) {
       if (act === 'web') window.open('https://github.com/' + c.repo, '_blank', 'noopener');
     });
 }
-const GH_ST = { view: '', repos: null, create: null, msg: '', site: '' };
-async function githubDialog(view) {
+const GH_ST = { view: '', repos: null, create: null, msg: '', site: '', after: '', pushMsg: '' };
+/* العودة إلى نافذة الدفع بعد تغيير المستودع (أو الرجوع منه) مع إبقاء رسالة الـ commit */
+function ghResumePush() { const m = GH_ST.pushMsg; GH_ST.after = ''; ui.close(null); setTimeout(() => githubPush(undefined, m), 120); }
+/* تحويل المشروع إلى تطبيق (PWA) ثم دفعه، وفتح صفحة المشروع على GitHub Pages */
+function ghConvertApp() {
+  const c = ghCfg(); if (!c.token || !ghRepoOk(c.repo)) return githubDialog();
+  ghSaveCfg({ token: c.token, repo: c.repo, branch: c.branch, dir: c.dir, jk: true });
+  return githubPush(undefined, 'تحويل المشروع إلى تطبيق (PWA) من CodePatcher');
+}
+function ghOpenSite() {
+  const c = ghCfg(); if (!ghRepoOk(c.repo)) return githubDialog();
+  window.open(jkSiteUrl(c.repo), '_blank', 'noopener');
+}
+/* نافذة GitHub */
+async function githubDialog(view, after) {
   const c = ghCfg(), raw = ghRaw();
+  GH_ST.after = after === 'push' ? 'push' : '';
   if (!view) { GH_ST.create = null; view = !c.token ? 'connect' : ghRepoOk(c.repo) ? 'main' : 'pick'; }
   GH_ST.view = view;
-  const go = v => githubDialog(v);
+  const go = v => githubDialog(v, GH_ST.after);
   const doOpen = u => window.open(u, '_blank', 'noopener');
 
   if (view === 'connect') {
@@ -248,7 +309,8 @@ async function githubDialog(view) {
       uiRow('repos', 'folder-open', 'تغيير المستودع', 'اختر مستودعاً آخر لهذا المشروع') +
       '<div class="slabel">رسالة الـ commit</div><input type="text" id="ghMsg" value="' + esc(GH_ST.msg || ghDefMsg()) + '">' +
       '<button type="button" class="btn primary" data-act="push">دفع المشروع إلى <bdi dir="ltr">' + esc(rn) + '</bdi></button>' +
-      '<div class="slabel">الموقع</div><div id="ghSite"><div class="slabel">جارٍ فحص حالة الموقع…</div></div>' +
+      '<div class="srow"><button type="button" class="btn" data-act="jkgo">تحويل إلى تطبيق</button><button type="button" class="btn" data-act="app">فتح الصفحة</button></div>' +
+      '<div id="ghSite"></div>' +
       '<div class="srow"><button type="button" class="btn" data-act="web">فتح المستودع</button><button type="button" class="btn" data-act="new">مستودع جديد</button><button type="button" class="btn" data-act="set">الإعدادات</button></div>' +
       '<button type="button" class="btn" data-ui="cancel">إغلاق</button>', act => {
         if (act === 'push') { GH_ST.msg = ''; const m = $('ghMsg').value; ui.close(null); return void setTimeout(() => githubPush(m), 120); }
@@ -257,7 +319,7 @@ async function githubDialog(view) {
         if (act === 'set') return go('set');
         if (act === 'web') return doOpen('https://github.com/' + c.repo);
         if (act === 'app') return doOpen(GH_ST.site || jkSiteUrl(c.repo));
-        if (act === 'jkgo') { ghSaveCfg({ token: c.token, repo: c.repo, branch: c.branch, dir: c.dir, jk: true }); ui.close(null); return void setTimeout(() => githubPush(undefined, 'تحويل المشروع إلى تطبيق (PWA) من CodePatcher'), 120); }
+        if (act === 'jkgo') { ui.close(null); return void setTimeout(ghConvertApp, 120); }
       });
     GH_ST.site = ''; ghFillSite(c);
     return;
@@ -267,20 +329,21 @@ async function githubDialog(view) {
     if (!GH_ST.repos) {
       ui.show(ghHead(raw.login) + uiEmpty('جارٍ جلب مستودعاتك…') + '<button type="button" class="btn" data-ui="cancel">إلغاء</button>');
       try { GH_ST.repos = await ghListRepos(c); }
-      catch (e) { toast('تعذّر جلب المستودعات: ' + ghErrText(e), 'err'); return go(ghRepoOk(c.repo) ? 'main' : 'connect'); }
+      catch (e) { toast('تعذّر جلب المستودعات: ' + ghErrText(e), 'err'); if (GH_ST.after === 'push') return ghResumePush(); return go(ghRepoOk(c.repo) ? 'main' : 'connect'); }
       if (GH_ST.view !== 'pick') return;
     }
     const list = GH_ST.repos;
     ui.show(ghHead(raw.login) +
+      (GH_ST.after === 'push' ? uiNote('بعد الاختيار تعود إلى نافذة الدفع') : '') +
       '<div class="slabel">اختر المستودع (' + list.length + ')</div><input type="text" id="ghQ"' + GH_ATTR + ' placeholder="ابحث…">' +
       uiScroll('<div id="ghList">' + ghRepoRows(list, '') + '</div>', 'lg') +
       '<div class="srow"><button type="button" class="btn" data-act="back">رجوع</button><button type="button" class="btn primary" data-act="new">مستودع جديد</button></div>', (act, el) => {
-        if (act === 'back') return go(ghRepoOk(c.repo) ? 'main' : 'connect');
+        if (act === 'back') return GH_ST.after === 'push' ? ghResumePush() : go(ghRepoOk(c.repo) ? 'main' : 'connect');
         if (act === 'new') return go('create');
         if (act !== 'pick') return;
         const r = list[+el.dataset.i], cur0 = ghCfg();
         ghSaveCfg({ token: c.token, repo: r.full_name, branch: r.default_branch || 'main', dir: r.full_name === cur0.repo ? cur0.dir : '' });
-        toast('اخترت: ' + r.full_name, 'ok'); go('main');
+        toast('اخترت: ' + r.full_name, 'ok'); if (GH_ST.after === 'push') return ghResumePush(); go('main');
       });
     $('ghQ').addEventListener('input', e => { $('ghList').innerHTML = ghRepoRows(list, e.target.value); });
     return;
@@ -297,7 +360,7 @@ async function githubDialog(view) {
       uiNote('Pages يحتاج مستودعاً عاماً في الحساب المجاني. يُنشأ المستودع ومعه ملف README ثم تدفع مشروعك إليه.') +
       '<div class="srow"><button type="button" class="btn" data-act="back">رجوع</button><button type="button" class="btn primary" data-act="mk">إنشاء</button></div>', async act => {
         const a = $('ghNName'), b = $('ghNDesc'); if (a) st.name = a.value; if (b) st.desc = b.value;
-        if (act === 'back') return go(ghRepoOk(c.repo) ? 'main' : (GH_ST.repos ? 'pick' : 'connect'));
+        if (act === 'back') return go(GH_ST.after === 'push' ? 'pick' : ghRepoOk(c.repo) ? 'main' : (GH_ST.repos ? 'pick' : 'connect'));
         if (act === 'pub') { st.priv = false; return go('create'); }
         if (act === 'prv') { st.priv = true; return go('create'); }
         if (act === 'pgon') { st.pages = true; return go('create'); }
@@ -312,6 +375,7 @@ async function githubDialog(view) {
           GH_ST.repos = null; GH_ST.create = null;
           log('ok', 'GitHub: أُنشئ المستودع ' + r.repo);
           toast('أُنشئ ' + r.repo + (st.pages && !st.priv ? (r.pages ? ' وفُعّل الموقع' : ' — تعذّر تفعيل Pages، فعّله من إعدادات المستودع') : ''), 'ok');
+          if (GH_ST.after === 'push') return ghResumePush();
           go('main');
         } catch (e) { toast('فشل الإنشاء: ' + ghCreateErr(e), 'err'); }
       });
